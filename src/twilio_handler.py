@@ -5,7 +5,7 @@ from twilio.base.exceptions import TwilioRestException
 from ai_parser import format_booking_for_owner, parse_owner_correction
 from state_manager import StateManager
 from calendar_handler import create_calendar_event
-from gmail_poller import get_gmail_service
+from google_auth import get_gmail_service
 from email.mime.text import MIMEText
 import base64
 

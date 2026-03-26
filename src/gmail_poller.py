@@ -1,36 +1,16 @@
 import os
 import base64
 import logging
-import json
-from datetime import datetime, timezone
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+from google_auth import get_gmail_service
 from googleapiclient.errors import HttpError
 from ai_parser import extract_booking_details
 from state_manager import StateManager
-from twilio_handler import send_owner_confirmation_request, send_customer_email_reply
+from twilio_handler import send_owner_confirmation_request
 from email.mime.text import MIMEText
 
 logger = logging.getLogger(__name__)
 
-SCOPES = [
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/calendar'
-]
-
 PROCESSED_LABEL = "RimBookingProcessed"
-
-def get_gmail_service():
-    creds = Credentials(
-        token=None,
-        refresh_token=os.environ['GOOGLE_REFRESH_TOKEN'],
-        client_id=os.environ['GOOGLE_CLIENT_ID'],
-        client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
-        token_uri='https://oauth2.googleapis.com/token',
-        scopes=SCOPES
-    )
-    return build('gmail', 'v1', credentials=creds)
 
 def get_or_create_label(service, label_name):
     """Get or create a Gmail label for tracking processed emails."""
