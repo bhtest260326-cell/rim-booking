@@ -227,10 +227,21 @@ def api_data():
         bd   = b.get('booking_data', {})
         date = bd.get('preferred_date', '')
         if date >= today:
-            row = type('R', (), {'id': bid, 'customer_email': b.get('customer_email', '')})()
+            row = {'id': bid, 'customer_email': b.get('customer_email', '')}
             upcoming.append(_card(row, bd))
     upcoming.sort(key=lambda x: (x['date'], x['time']))
     today_jobs = [u for u in upcoming if u['date'] == today]
+
+    # Workflow pipeline counts
+    with state._conn() as conn:
+        emails_received      = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
+        clarifications_pending = conn.execute("SELECT COUNT(*) FROM clarifications").fetchone()[0]
+        total_confirmed      = conn.execute("SELECT COUNT(*) FROM bookings WHERE status='confirmed'").fetchone()[0]
+        total_declined       = conn.execute("SELECT COUNT(*) FROM bookings WHERE status='declined'").fetchone()[0]
+        calendar_events      = conn.execute(
+            "SELECT COUNT(*) FROM bookings WHERE status='confirmed' AND calendar_event_id IS NOT NULL AND calendar_event_id != ''"
+        ).fetchone()[0]
+        ai_extracted = conn.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] + clarifications_pending
 
     return jsonify({
         'flags':      flags,
@@ -242,7 +253,67 @@ def api_data():
             'today':    len(today_jobs),
             'upcoming': len(upcoming),
         },
+        'workflow': {
+            'emails_received':       emails_received,
+            'ai_extracted':          ai_extracted,
+            'clarifications_pending': clarifications_pending,
+            'awaiting_owner':        len(pending),
+            'confirmed':             total_confirmed,
+            'declined':              total_declined,
+            'calendar_events':       calendar_events,
+        },
     })
+
+
+@admin_bp.route('/admin/api/gmail', methods=['GET'])
+def api_gmail():
+    """Return the last 25 Gmail inbox messages with booking status labels."""
+    if not _authorised():
+        return jsonify({'error': 'Unauthorized'}), 403
+    try:
+        from google_auth import get_gmail_service
+        service = get_gmail_service()
+
+        # Build label ID → name map (needed to resolve custom label IDs)
+        labels_result = service.users().labels().list(userId='me').execute()
+        label_map = {l['id']: l['name'] for l in labels_result.get('labels', [])}
+
+        results = service.users().messages().list(
+            userId='me', labelIds=['INBOX'], maxResults=25
+        ).execute()
+        raw_msgs = results.get('messages', [])
+
+        inbox = []
+        for msg in raw_msgs:
+            m = service.users().messages().get(
+                userId='me', id=msg['id'], format='metadata',
+                metadataHeaders=['From', 'Subject', 'Date']
+            ).execute()
+            headers   = {h['name']: h['value'] for h in m.get('payload', {}).get('headers', [])}
+            label_ids = m.get('labelIds', [])
+
+            booking_status = None
+            for lid in label_ids:
+                name = label_map.get(lid, '')
+                if name.startswith('Rim Repairs/'):
+                    booking_status = name[len('Rim Repairs/'):]
+                    break
+
+            inbox.append({
+                'id':             msg['id'],
+                'thread_id':      m.get('threadId', ''),
+                'from':           headers.get('From', ''),
+                'subject':        headers.get('Subject', '(no subject)'),
+                'date':           headers.get('Date', ''),
+                'snippet':        m.get('snippet', ''),
+                'is_unread':      'UNREAD' in label_ids,
+                'booking_status': booking_status,
+            })
+
+        return jsonify({'messages': inbox, 'error': None})
+    except Exception as e:
+        logger.error(f"Gmail inbox API error: {e}")
+        return jsonify({'messages': [], 'error': str(e)})
 
 
 @admin_bp.route('/admin/api/toggle', methods=['POST'])
