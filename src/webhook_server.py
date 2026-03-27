@@ -149,53 +149,179 @@ def create_app():
 
     @app.route('/reschedule/<token>', methods=['GET'])
     def reschedule_page(token):
-        """Customer-facing reschedule page. Shows available days for their booking."""
+        """Customer-facing reschedule page — calendar UI with month navigation."""
         from email_utils import verify_reschedule_token
         from state_manager import StateManager
-        from maps_handler import get_week_availability, get_job_duration_minutes
-        import json
+        from maps_handler import get_week_availability, get_job_duration_minutes, _is_business_day
+        import json, calendar as _cal
+        from datetime import datetime as _dt, timedelta as _td, date as _date
 
         booking_id = verify_reschedule_token(token)
         if not booking_id:
-            return "<h2>This reschedule link has expired or is invalid.</h2><p>Please reply to your confirmation email to reschedule.</p>", 400
+            return ("<h2 style='font-family:sans-serif;color:#C41230;'>Link expired or invalid.</h2>"
+                    "<p style='font-family:sans-serif;'>Please reply to your confirmation email to reschedule.</p>"), 400
 
         state = StateManager()
-        # Check confirmed bookings
         confirmed = state.get_confirmed_bookings()
         booking = confirmed.get(booking_id)
         if not booking:
-            return "<h2>Booking not found.</h2><p>It may have already been cancelled or rescheduled.</p>", 404
+            return ("<h2 style='font-family:sans-serif;'>Booking not found.</h2>"
+                    "<p style='font-family:sans-serif;'>It may have already been rescheduled or cancelled.</p>"), 404
 
         bd = booking.get('booking_data', {})
         if isinstance(bd, str):
             bd = json.loads(bd)
 
-        # Get available days
+        # Determine which month to display (default: current month, min: today)
+        today = _date.today()
+        month_param = request.args.get('month', today.strftime('%Y-%m'))
+        try:
+            view_year, view_month = int(month_param[:4]), int(month_param[5:7])
+            view_first = _date(view_year, view_month, 1)
+        except Exception:
+            view_first = today.replace(day=1)
+            view_year, view_month = view_first.year, view_first.month
+
+        # Clamp: don't allow navigating before current month
+        if view_first < today.replace(day=1):
+            view_first = today.replace(day=1)
+            view_year, view_month = view_first.year, view_first.month
+
+        # Prev/next month navigation
+        prev_month_dt = (view_first - _td(days=1)).replace(day=1)
+        next_month_dt = (view_first + _td(days=32)).replace(day=1)
+        prev_param = prev_month_dt.strftime('%Y-%m')
+        next_param = next_month_dt.strftime('%Y-%m')
+        can_go_prev = view_first > today.replace(day=1)
+
+        # Fetch availability: enough days to cover entire view month + overflow
+        days_in_month = _cal.monthrange(view_year, view_month)[1]
+        # Start from the later of today or view_first
+        fetch_start = max(today, view_first)
         duration = get_job_duration_minutes(bd)
-        availability = get_week_availability(duration)
-        available_days = [slot for slot in availability if slot['available']]
+        avail_data = get_week_availability(
+            duration,
+            from_date_str=fetch_start.strftime('%Y-%m-%d'),
+            num_days=max(days_in_month, 30)
+        )
+        avail_map = {s['date']: s['available'] for s in avail_data}
 
         customer_name = (bd.get('customer_name') or 'there').split()[0]
         current_date = bd.get('preferred_date', 'Unknown')
+        month_label = view_first.strftime('%B %Y')
 
-        # Build simple HTML page
-        options_html = ''
-        for slot in available_days:
-            options_html += f'<li><a href="/reschedule/{token}/confirm/{slot["date"]}">{slot["day_name"]} {slot["date"]}</a></li>'
+        # Build calendar grid (Sunday-first, 7 columns)
+        # weekday(): Mon=0 … Sun=6; calendar week starts Sunday so offset = (weekday+1)%7
+        first_weekday = view_first.weekday()   # 0=Mon … 6=Sun
+        start_offset = (first_weekday + 1) % 7  # cells to skip before day 1 (Sun-first grid)
 
-        if not options_html:
-            options_html = '<li>No available dates found in the next two weeks. Please reply to your email to reschedule.</li>'
+        day_headers = ''.join(f'<div class="dh">{d}</div>' for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'])
+        cells = '<div class="dc empty"></div>' * start_offset
+
+        for d in range(1, days_in_month + 1):
+            day_date = _date(view_year, view_month, d)
+            date_str = day_date.strftime('%Y-%m-%d')
+            is_past = day_date < today
+            is_weekend = day_date.weekday() >= 5
+
+            if is_past or is_weekend:
+                css = 'dc past'
+                inner = f'<span class="dn">{d}</span>'
+            elif not _is_business_day(day_date):
+                css = 'dc holiday'
+                inner = f'<span class="dn">{d}</span><span class="dl">Holiday</span>'
+            elif avail_map.get(date_str) is True:
+                css = 'dc available'
+                inner = (f'<a href="/reschedule/{token}/confirm/{date_str}" class="day-link">'
+                         f'<span class="dn">{d}</span><span class="dl">Available</span></a>')
+            elif avail_map.get(date_str) is False:
+                css = 'dc full'
+                inner = f'<span class="dn">{d}</span><span class="dl">Full</span>'
+            else:
+                # Date not in fetched range (future beyond our window)
+                css = 'dc future'
+                inner = f'<span class="dn">{d}</span>'
+
+            cells += f'<div class="{css}">{inner}</div>'
 
         html = f"""<!DOCTYPE html>
-<html><head><title>Reschedule Your Booking</title>
-<style>body{{font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;}}
-h1{{color:#C41230;}}a{{color:#C41230;}}ul{{line-height:2;}}</style></head>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reschedule Your Booking</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0;}}
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#1e293b;}}
+  .wrap{{max-width:480px;margin:32px auto;padding:16px;}}
+  .card{{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);padding:24px;}}
+  h1{{color:#C41230;font-size:22px;margin-bottom:4px;}}
+  .subtitle{{color:#64748b;font-size:14px;margin-bottom:20px;}}
+  .current-booking{{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;
+    padding:12px 16px;margin-bottom:20px;font-size:14px;color:#991b1b;}}
+  .cal-nav{{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}}
+  .cal-nav strong{{font-size:17px;}}
+  .nav-btn{{background:none;border:1px solid #e2e8f0;border-radius:6px;
+    padding:6px 14px;cursor:pointer;color:#1e293b;font-size:13px;text-decoration:none;
+    display:inline-block;}}
+  .nav-btn:hover{{background:#f1f5f9;}}
+  .nav-btn.disabled{{color:#cbd5e1;cursor:default;pointer-events:none;}}
+  .cal-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}}
+  .dh{{text-align:center;font-size:11px;font-weight:600;color:#94a3b8;
+    padding:6px 0;text-transform:uppercase;}}
+  .dc{{border-radius:8px;min-height:52px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:4px;font-size:13px;}}
+  .dc.empty{{background:none;}}
+  .dc.past{{background:#f8fafc;opacity:.45;}}
+  .dc.holiday{{background:#f8fafc;opacity:.55;}}
+  .dc.future{{background:#f8fafc;}}
+  .dc.full{{background:#fff1f2;}}
+  .dc.available{{background:#f0fdf4;border:1px solid #bbf7d0;transition:transform .1s;}}
+  .dc.available:hover{{transform:scale(1.04);border-color:#4ade80;}}
+  .dn{{font-weight:700;font-size:15px;}}
+  .dc.past .dn,.dc.holiday .dn,.dc.future .dn{{color:#94a3b8;font-weight:400;}}
+  .dc.full .dn{{color:#f87171;}}
+  .dc.available .dn{{color:#16a34a;}}
+  .dl{{font-size:10px;margin-top:2px;}}
+  .dc.full .dl{{color:#f87171;}}
+  .dc.available .dl{{color:#16a34a;font-weight:600;}}
+  .dc.holiday .dl{{color:#94a3b8;}}
+  .day-link{{display:flex;flex-direction:column;align-items:center;
+    text-decoration:none;width:100%;height:100%;}}
+  .legend{{display:flex;gap:14px;margin-top:16px;flex-wrap:wrap;}}
+  .leg{{display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b;}}
+  .leg-dot{{width:10px;height:10px;border-radius:3px;}}
+  .footer{{margin-top:16px;font-size:12px;color:#94a3b8;text-align:center;}}
+</style>
+</head>
 <body>
-<h1>Reschedule Your Booking</h1>
-<p>Hi {customer_name}, your current booking is for <strong>{current_date}</strong>.</p>
-<p>Please choose a new date from the available options below:</p>
-<ul>{options_html}</ul>
-<p><small>This link expires 7 days after your original confirmation.</small></p>
+<div class="wrap">
+  <div class="card">
+    <h1>Reschedule Booking</h1>
+    <p class="subtitle">Hi {customer_name}, select a new date below</p>
+    <div class="current-booking">
+      Current booking: <strong>{current_date}</strong>
+    </div>
+
+    <div class="cal-nav">
+      {'<a href="?month=' + prev_param + '" class="nav-btn">&#8592; ' + prev_month_dt.strftime('%b') + '</a>' if can_go_prev else '<span class="nav-btn disabled">&#8592;</span>'}
+      <strong>{month_label}</strong>
+      <a href="?month={next_param}" class="nav-btn">{next_month_dt.strftime('%b')} &#8594;</a>
+    </div>
+
+    <div class="cal-grid">
+      {day_headers}
+      {cells}
+    </div>
+
+    <div class="legend">
+      <div class="leg"><div class="leg-dot" style="background:#bbf7d0;border:1px solid #86efac;"></div>Available</div>
+      <div class="leg"><div class="leg-dot" style="background:#fff1f2;border:1px solid #fecaca;"></div>Fully booked</div>
+      <div class="leg"><div class="leg-dot" style="background:#f1f5f9;"></div>Unavailable</div>
+    </div>
+    <p class="footer">This link expires 7 days after your original confirmation.</p>
+  </div>
+</div>
 </body></html>"""
         return html
 

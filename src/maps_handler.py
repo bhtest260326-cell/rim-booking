@@ -528,7 +528,7 @@ def find_next_available_slot(target_date_str, new_address, day_bookings,
 
 
 def get_week_availability(duration_minutes: int, from_date_str: str = None,
-                          assumed_travel_minutes: int = 25) -> list:
+                          assumed_travel_minutes: int = 25, num_days: int = 10) -> list:
     """Check availability for the next 5 business days.
 
     For each day, determines whether a contiguous block of `duration_minutes`
@@ -571,10 +571,10 @@ def get_week_availability(duration_minutes: int, from_date_str: str = None,
     else:
         start = _perth_now_local().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Collect next 10 business days (2 full weeks, Mon–Fri, excluding WA public holidays)
+    # Collect next N business days (Mon–Fri, excluding WA public holidays)
     business_days = []
     cursor = start
-    while len(business_days) < 10:
+    while len(business_days) < num_days:
         if _is_business_day(cursor.date()):
             business_days.append(cursor)
         cursor += timedelta(days=1)
