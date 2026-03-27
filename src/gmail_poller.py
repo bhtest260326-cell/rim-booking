@@ -10,6 +10,8 @@ from twilio_handler import send_owner_confirmation_request
 from label_manager import initialise_labels, label_pending_reply, label_awaiting_confirmation, label_processed
 from email.mime.text import MIMEText
 
+from feature_flags import get_flag
+
 logger = logging.getLogger(__name__)
 
 def get_email_body(message):
@@ -284,8 +286,11 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
     )
 
     if needs_clarification:
-        send_clarification_email(service, customer_email, subject, missing_fields,
-                                  thread_id=thread_id, message_id_header=message_id_header)
+        if get_flag('flag_auto_email_replies'):
+            send_clarification_email(service, customer_email, subject, missing_fields,
+                                      thread_id=thread_id, message_id_header=message_id_header)
+        else:
+            logger.info(f"Auto email replies disabled — clarification not sent to {customer_email}")
         state.create_pending_clarification(
             booking_data=booking_data,
             customer_email=customer_email,
@@ -342,8 +347,11 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
 
     if still_missing:
         # Still incomplete — ask again, keeping reply inside the same Gmail thread
-        send_clarification_email(service, customer_email, subject, still_missing,
-                                  thread_id=thread_id, message_id_header=message_id_header)
+        if get_flag('flag_auto_email_replies'):
+            send_clarification_email(service, customer_email, subject, still_missing,
+                                      thread_id=thread_id, message_id_header=message_id_header)
+        else:
+            logger.info(f"Auto email replies disabled — follow-up clarification not sent to {customer_email}")
         state.update_clarification_booking_data(existing_pending['id'], merged_data, still_missing)
         try:
             label_pending_reply(service, msg_id)

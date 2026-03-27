@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from state_manager import StateManager
 from twilio_handler import send_sms
+from feature_flags import get_flag
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,8 @@ def run_scheduled_tasks():
 
 def send_day_prior_reminders():
     """Send reminder SMS to customers the day before their booking."""
+    if not get_flag('flag_day_prior_reminders'):
+        return
     state = StateManager()
     confirmed = state.get_confirmed_bookings()
     
@@ -59,6 +62,8 @@ def send_day_prior_reminders():
 
 def send_post_job_review_requests():
     """Send Google review request SMS ~2 hours after job end time."""
+    if not get_flag('flag_post_job_reviews'):
+        return
     state = StateManager()
     confirmed = state.get_confirmed_bookings()
     

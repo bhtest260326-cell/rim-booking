@@ -13,6 +13,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import base64
 
+from feature_flags import get_flag
+
 logger = logging.getLogger(__name__)
 
 def get_twilio_client():
@@ -57,6 +59,9 @@ def send_sms(to, body):
         return None
 
 def send_owner_confirmation_request(pending_id, booking_data):
+    if not get_flag('flag_auto_sms_owner'):
+        logger.info(f"Auto SMS to owner disabled — skipping confirmation request for {pending_id}")
+        return
     msg = format_booking_for_owner(booking_data)
     msg += f"\n\n[ID:{pending_id}]"
     send_sms(os.environ['OWNER_MOBILE'], msg)
@@ -186,10 +191,15 @@ def handle_owner_confirm(pending_id, pending):
 
     confirmation_msg = build_customer_confirmation_sms(booking_data)
 
-    if customer_phone:
+    if customer_phone and get_flag('flag_auto_sms_customer'):
         send_sms(customer_phone, confirmation_msg)
-    if customer_email:
+    elif customer_phone:
+        logger.info(f"Auto SMS to customer disabled — skipping confirmation SMS for {pending_id}")
+
+    if customer_email and get_flag('flag_auto_email_customer'):
         send_confirmation_email(customer_email, booking_data)
+    elif customer_email:
+        logger.info(f"Auto email to customer disabled — skipping confirmation email for {pending_id}")
 
     # Update Gmail label to Confirmed
     gmail_msg_id = pending.get('gmail_msg_id')
@@ -211,14 +221,18 @@ def handle_owner_decline(pending_id, pending):
     customer_phone = booking_data.get('customer_phone')
     customer_email = pending.get('customer_email') or booking_data.get('customer_email')
 
-    if customer_phone:
+    if customer_phone and get_flag('flag_auto_sms_customer'):
         send_sms(customer_phone,
             f"Hi {booking_data.get('customer_name', 'there')}, thank you for getting in touch with Rim Repair. "
             f"Unfortunately we're unable to accommodate your requested time. "
             f"Please reply and we'll find a suitable time for you.")
+    elif customer_phone:
+        logger.info(f"Auto SMS to customer disabled — skipping decline SMS for {pending_id}")
 
-    if customer_email:
+    if customer_email and get_flag('flag_auto_email_customer'):
         send_decline_email(customer_email, booking_data)
+    elif customer_email:
+        logger.info(f"Auto email to customer disabled — skipping decline email for {pending_id}")
 
     # Update Gmail label to Declined
     gmail_msg_id = pending.get('gmail_msg_id')
