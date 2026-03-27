@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 from googleapiclient.errors import HttpError
 from google_auth import get_calendar_service
-from maps_handler import get_travel_minutes, BUSINESS_ADDRESS
+from maps_handler import get_travel_minutes, BUSINESS_ADDRESS, get_job_duration_minutes
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,10 @@ def create_calendar_event(booking_data):
             logger.error("No date in booking data, cannot create calendar event")
             return None
         
-        # Parse start datetime
+        # Parse start datetime — use rim-count-based duration
+        job_duration = get_job_duration_minutes(booking_data)
         start_dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
-        end_dt = start_dt + timedelta(minutes=DEFAULT_JOB_DURATION_MINUTES)
+        end_dt = start_dt + timedelta(minutes=job_duration)
         
         # Build event title
         customer_name = booking_data.get('customer_name', 'Customer')
@@ -99,7 +100,7 @@ Email: {customer_email}
 Vehicle: {vehicle}
 Service: {service_type}{f' x{num_rims} rims' if num_rims else ''}
 Address: {address}
-Duration: ~2 hours
+Duration: ~{job_duration // 60}h{f' {job_duration % 60}m' if job_duration % 60 else ''}
 {travel_line}
 
 Payment: EFTPOS on the day

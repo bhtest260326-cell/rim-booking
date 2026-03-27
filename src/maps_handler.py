@@ -7,10 +7,35 @@ logger = logging.getLogger(__name__)
 
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 BUSINESS_ADDRESS = '76 Albert St, Osborne Park WA 6017'
-JOB_DURATION_MINUTES = 120
 BUSINESS_START_HOUR = 8    # 8:00 AM — first job of the day
 BUSINESS_LATEST_START = 15  # 3:00 PM — last job must start by this to finish by ~5pm
 TRAVEL_BUFFER_MINUTES = 10  # padding added on top of Maps estimate
+
+# Job duration table (minutes) keyed by number of rims
+_RIM_DURATION: dict[int, int] = {1: 120, 2: 180, 3: 240, 4: 300}
+_DEFAULT_DURATION = 120  # fallback when rim count unknown
+
+
+def get_job_duration_minutes(booking_data: dict) -> int:
+    """Return estimated job duration in minutes based on rim count and service type."""
+    service = (booking_data.get('service_type') or '').lower()
+
+    # Paint touch-ups are quicker — not in the rim table
+    if service == 'paint_touchup':
+        return 60
+
+    num_rims = booking_data.get('num_rims')
+    try:
+        n = int(num_rims)
+    except (TypeError, ValueError):
+        return _DEFAULT_DURATION
+
+    if n <= 0:
+        return _DEFAULT_DURATION
+    if n in _RIM_DURATION:
+        return _RIM_DURATION[n]
+    # Extrapolate beyond 4 rims: base 300 min + 60 per extra rim
+    return 300 + (n - 4) * 60
 
 
 def get_travel_minutes(origin, destination):
@@ -61,14 +86,16 @@ def get_travel_minutes(origin, destination):
         return 30
 
 
-def find_next_available_slot(target_date_str, new_address, day_bookings):
-    """Find the earliest available start time on target_date for a 2-hour job.
+def find_next_available_slot(target_date_str, new_address, day_bookings,
+                             new_booking_data=None):
+    """Find the earliest available start time on target_date for a new job.
 
     Args:
-        target_date_str: 'YYYY-MM-DD' string for the desired date.
-        new_address:     address/suburb string for the new job.
-        day_bookings:    list of booking_data dicts already confirmed on that date,
-                         each expected to have 'preferred_time' and 'address'/'suburb'.
+        target_date_str:  'YYYY-MM-DD' string for the desired date.
+        new_address:      address/suburb string for the new job.
+        day_bookings:     list of booking_data dicts already confirmed on that date.
+        new_booking_data: full booking_data dict for the new job (used to calculate
+                          its duration from rim count). Falls back to default if None.
 
     Returns:
         (date_str, time_str) — may advance to next business day if no room today.
@@ -87,6 +114,9 @@ def find_next_available_slot(target_date_str, new_address, day_bookings):
     day_start = target_date.replace(hour=BUSINESS_START_HOUR, minute=0, second=0, microsecond=0)
     latest_start = target_date.replace(hour=BUSINESS_LATEST_START, minute=0, second=0, microsecond=0)
 
+    # Duration of the new job being scheduled
+    new_job_duration = get_job_duration_minutes(new_booking_data or {})
+
     if not day_bookings:
         # First job of the day — measure travel from the business address
         travel_from_base = get_travel_minutes(BUSINESS_ADDRESS, new_address)
@@ -95,7 +125,8 @@ def find_next_available_slot(target_date_str, new_address, day_bookings):
             first_start = day_start  # fallback if Maps gives a crazy result
         return target_date_str, first_start.strftime("%H:%M")
 
-    # Build sorted list of (start, end, address) for existing jobs
+    # Build sorted list of (start, end, address) for existing jobs using their
+    # own durations so longer multi-rim jobs block the right amount of time.
     existing = []
     for b in day_bookings:
         time_str = b.get('preferred_time') or '09:00'
@@ -103,7 +134,8 @@ def find_next_available_slot(target_date_str, new_address, day_bookings):
             start = datetime.strptime(f"{target_date_str} {time_str}", "%Y-%m-%d %H:%M")
         except ValueError:
             continue
-        end = start + timedelta(minutes=JOB_DURATION_MINUTES)
+        duration = get_job_duration_minutes(b)
+        end = start + timedelta(minutes=duration)
         addr = b.get('address') or b.get('suburb') or ''
         existing.append((start, end, addr))
     existing.sort(key=lambda x: x[0])
@@ -124,7 +156,7 @@ def find_next_available_slot(target_date_str, new_address, day_bookings):
         # Travel from new job to the upcoming existing job
         travel_new_to_next = get_travel_minutes(new_address, job_addr) if (new_address and job_addr) else 30
 
-        new_job_end = earliest + timedelta(minutes=JOB_DURATION_MINUTES)
+        new_job_end = earliest + timedelta(minutes=new_job_duration)
 
         # Fits before this existing job?
         if new_job_end + timedelta(minutes=travel_new_to_next) <= job_start and earliest <= latest_start:

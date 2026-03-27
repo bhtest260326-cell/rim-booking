@@ -259,7 +259,9 @@ def _assign_best_slot(booking_data, state):
         job_address = booking_data.get('address') or booking_data.get('suburb') or ''
         day_bookings = state.get_confirmed_bookings_for_date(target_date)
 
-        found_date, found_time = find_next_available_slot(target_date, job_address, day_bookings)
+        found_date, found_time = find_next_available_slot(
+            target_date, job_address, day_bookings, new_booking_data=booking_data
+        )
 
         original_time = booking_data.get('preferred_time')
         if found_date != target_date or found_time != original_time:

@@ -263,7 +263,9 @@ def handle_owner_correction(pending_id, pending, correction_text):
             )
             job_address = original.get('address') or original.get('suburb') or ''
             day_bookings = state.get_confirmed_bookings_for_date(target_date)
-            found_date, found_time = find_next_available_slot(target_date, job_address, day_bookings)
+            found_date, found_time = find_next_available_slot(
+                target_date, job_address, day_bookings, new_booking_data=original
+            )
             slot_hint = f"{found_date} at {found_time}"
             logger.info(f"Maps slot computed for correction: {slot_hint}")
         except Exception as e:
