@@ -45,16 +45,21 @@ def poll_gmail():
         service = get_gmail_service()
         state = StateManager()
 
+        # Initialise labels — non-blocking, labels are cosmetic only
         try:
             initialise_labels(service)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Label init skipped: {e}")
 
-        results = service.users().messages().list(
-            userId='me',
-            q='in:inbox',
-            maxResults=20
-        ).execute()
+        try:
+            results = service.users().messages().list(
+                userId='me',
+                q='in:inbox',
+                maxResults=20
+            ).execute()
+        except Exception as e:
+            logger.error(f"Gmail list error: {e}")
+            return
 
         messages = results.get('messages', [])
         if not messages:
