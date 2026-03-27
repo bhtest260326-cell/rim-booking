@@ -259,51 +259,70 @@ def format_availability_response(
                 requested_slot = slot
                 break
 
+    # Group slots by ISO calendar week so the table always shows clean Mon–Fri blocks.
+    from datetime import datetime as _dt, timedelta as _td
+    from itertools import groupby as _groupby
+
+    def _week_key(slot):
+        d = _dt.strptime(slot['date'], '%Y-%m-%d')
+        return d.isocalendar()[:2]  # (year, week_number)
+
+    # Determine labels relative to today's week
+    _today_week = _dt.today().isocalendar()[:2]
+
+    def _week_label(year_week):
+        yr, wk = year_week
+        # Find the Monday of this ISO week
+        monday = _dt.fromisocalendar(yr, wk, 1)
+        mon_str = monday.strftime('%d %b').lstrip('0')
+        if (yr, wk) == _today_week:
+            return f'This week (from {mon_str})'
+        yr2, wk2 = (_dt.today() + _td(days=7)).isocalendar()[:2]
+        if (yr, wk) == (yr2, wk2):
+            return f'Next week (w/c {mon_str})'
+        return f'Week of {mon_str}'
+
     table_rows = ''
-    for idx, slot in enumerate(availability):
-        # Insert a separator row before the 6th item when next-week days were appended
-        if idx == 5 and len(availability) > 5:
-            table_rows += (
-                '<tr><td colspan="2" style="padding:6px 14px;font-size:12px;font-weight:700;'
-                'color:#64748b;background:#f8fafc;text-transform:uppercase;'
-                'letter-spacing:0.05em;">Following week</td></tr>'
-            )
-
-        is_requested = requested_slot is not None and slot.get('date') == requested_date
-        if slot['available']:
-            badge = f'<span style="color:#16a34a;font-weight:700;">&#10003; Yes</span>'
-        else:
-            badge = f'<span style="color:{RED};font-weight:700;">&#10007; No</span>'
-
-        # Format date as "30 Mar" (no leading zero, cross-platform)
-        try:
-            from datetime import datetime as _dt
-            slot_dt = _dt.strptime(slot['date'], '%Y-%m-%d')
-            short_date = slot_dt.strftime('%d %b').lstrip('0')
-        except Exception:
-            short_date = ''
-
-        day_with_date = f'{slot["day_name"]} {short_date}' if short_date else slot["day_name"]
-
-        if is_requested:
-            # Highlight the row with a light amber background and append a note to the day name
-            row_bg = 'background:#fffbeb;'
-            day_cell = (
-                f'{day_with_date}'
-                f'&nbsp;<span style="font-size:12px;color:#92400e;font-weight:600;">'
-                f'(your requested day)</span>'
-            )
-        else:
-            row_bg = ''
-            day_cell = day_with_date
-
+    for week_key, group in _groupby(availability, key=_week_key):
+        # Week header separator row
         table_rows += (
-            f'<tr style="{row_bg}">'
-            f'<td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;'
-            f'font-size:14px;color:{DARK};">{day_cell}</td>'
-            f'<td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;">{badge}</td>'
-            f'</tr>'
+            '<tr><td colspan="2" style="padding:6px 14px;font-size:11px;font-weight:700;'
+            f'color:{MUTED};background:#f8fafc;text-transform:uppercase;'
+            f'letter-spacing:0.06em;">{_week_label(week_key)}</td></tr>'
         )
+        for slot in group:
+            is_requested = requested_slot is not None and slot.get('date') == requested_date
+            if slot['available']:
+                badge = f'<span style="color:#16a34a;font-weight:700;">&#10003; Yes</span>'
+            else:
+                badge = f'<span style="color:{RED};font-weight:700;">&#10007; No</span>'
+
+            try:
+                slot_dt = _dt.strptime(slot['date'], '%Y-%m-%d')
+                short_date = slot_dt.strftime('%d %b').lstrip('0')
+            except Exception:
+                short_date = ''
+
+            day_with_date = f'{slot["day_name"]} {short_date}' if short_date else slot["day_name"]
+
+            if is_requested:
+                row_bg = 'background:#fffbeb;'
+                day_cell = (
+                    f'{day_with_date}'
+                    f'&nbsp;<span style="font-size:12px;color:#92400e;font-weight:600;">'
+                    f'(your requested day)</span>'
+                )
+            else:
+                row_bg = ''
+                day_cell = day_with_date
+
+            table_rows += (
+                f'<tr style="{row_bg}">'
+                f'<td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;'
+                f'font-size:14px;color:{DARK};">{day_cell}</td>'
+                f'<td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;">{badge}</td>'
+                f'</tr>'
+            )
 
     # Build an optional lead sentence that acknowledges the requested day
     requested_day_sentence = ''
@@ -353,7 +372,7 @@ def format_availability_response(
         f'Availability{service_line.replace("for a ", "— ").title() if service_line else ""}</h2>'
         f'{requested_day_sentence}'
         f'<p style="color:{DARK};font-size:15px;margin:0 0 12px;">'
-        f'Here is our availability for the coming week{service_line}:</p>'
+        f'Here is our availability for the coming two weeks{service_line}:</p>'
         f'<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;'
         f'width:100%;max-width:360px;border:1px solid #e2e8f0;margin:0 0 20px;'
         f'border-radius:4px;overflow:hidden;">'
