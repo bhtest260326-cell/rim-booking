@@ -6,7 +6,7 @@ from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
 from ai_parser import format_booking_for_owner, parse_owner_correction
 from state_manager import StateManager
-from calendar_handler import create_calendar_event
+from calendar_handler import create_calendar_event, create_tentative_calendar_invite, confirm_tentative_event, delete_calendar_event
 from google_auth import get_gmail_service
 from label_manager import label_confirmed, label_declined
 from email.mime.text import MIMEText
@@ -50,10 +50,66 @@ def send_sms(to, body):
 def send_owner_confirmation_request(pending_id, booking_data):
     if not get_flag('flag_auto_sms_owner'):
         logger.info(f"Auto SMS to owner disabled — skipping confirmation request for {pending_id}")
+        _send_calendar_invite_fallback(pending_id, booking_data, reason="SMS disabled")
         return
     msg = format_booking_for_owner(booking_data)
     msg += f"\n\n[ID:{pending_id}]"
-    send_sms(os.environ['OWNER_MOBILE'], msg)
+    result = send_sms(os.environ['OWNER_MOBILE'], msg)
+    if result is None:
+        logger.warning(f"Owner SMS failed for booking {pending_id} — triggering calendar invite fallback")
+        _send_calendar_invite_fallback(pending_id, booking_data, reason="SMS delivery failed")
+
+
+def _send_calendar_invite_fallback(pending_id, booking_data, reason="SMS unavailable"):
+    """
+    Fallback when owner SMS cannot be sent.
+    Creates a tentative [PENDING] calendar event and sends an email to OWNER_EMAIL.
+    The owner can accept/decline/amend from their calendar, or reply YES/NO via SMS later.
+    """
+    state = StateManager()
+
+    # Create tentative calendar event so data entry is automated
+    event_id = create_tentative_calendar_invite(booking_data, pending_id)
+    if event_id:
+        state.update_booking_calendar_event(pending_id, event_id)
+        logger.info(f"Tentative calendar event {event_id} created for pending booking {pending_id}")
+    else:
+        logger.error(f"Could not create tentative calendar event for booking {pending_id}")
+
+    # Send email notification to owner
+    owner_email = os.environ.get('OWNER_EMAIL', '')
+    if not owner_email:
+        logger.warning(f"OWNER_EMAIL not set — skipping fallback email for booking {pending_id}")
+        return
+
+    try:
+        service = get_gmail_service()
+        msg_body = format_booking_for_owner(booking_data)
+        name = booking_data.get('customer_name', 'Customer')
+        date = booking_data.get('preferred_date', 'TBC')
+        address = booking_data.get('address') or booking_data.get('suburb', 'TBC')
+
+        body = f"""New booking request — SMS notification failed ({reason}).
+
+A [PENDING] calendar event has been created for your review. You can:
+  • Accept: reply YES {pending_id} via SMS to confirm
+  • Decline: reply NO {pending_id} via SMS, or delete the calendar event
+  • Amend: edit the calendar event directly or reply with corrections via SMS
+
+---
+
+{msg_body}
+
+Booking ID: {pending_id}
+"""
+        message = MIMEText(body)
+        message['to'] = owner_email
+        message['subject'] = f"[ACTION REQUIRED] New Booking — {name}, {date}, {address}"
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        service.users().messages().send(userId='me', body={'raw': raw}).execute()
+        logger.info(f"Fallback email sent to owner ({owner_email}) for booking {pending_id}")
+    except Exception as e:
+        logger.error(f"Fallback email error for booking {pending_id}: {e}")
 
 def process_single_sms_webhook(from_number, body_text, message_sid):
     state = StateManager()
@@ -146,7 +202,13 @@ def poll_sms_replies():
 def handle_owner_confirm(pending_id, pending):
     state = StateManager()
     booking_data = pending['booking_data']
-    event_id = create_calendar_event(booking_data)
+    # If a tentative event was already created via fallback, upgrade it; otherwise create fresh
+    existing_event_id = pending.get('calendar_event_id')
+    if existing_event_id:
+        confirm_tentative_event(existing_event_id, booking_data)
+        event_id = existing_event_id
+    else:
+        event_id = create_calendar_event(booking_data)
     state.confirm_booking(pending_id, booking_data)
     if event_id:
         state.update_booking_calendar_event(pending_id, event_id)
@@ -170,6 +232,10 @@ def handle_owner_confirm(pending_id, pending):
 def handle_owner_decline(pending_id, pending):
     state = StateManager()
     booking_data = pending['booking_data']
+    # Remove any tentative calendar event created via fallback
+    existing_event_id = pending.get('calendar_event_id')
+    if existing_event_id:
+        delete_calendar_event(existing_event_id)
     state.decline_booking(pending_id)
     customer_phone = booking_data.get('customer_phone')
     customer_email = pending.get('customer_email') or booking_data.get('customer_email')

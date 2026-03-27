@@ -24,6 +24,7 @@ TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM_NUMBER=
 OWNER_MOBILE=
+OWNER_EMAIL=                  # Optional — fallback email when SMS fails (calendar invite sent here)
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REFRESH_TOKEN=
