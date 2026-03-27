@@ -84,7 +84,7 @@ def extract_booking_details(message_body, subject="", customer_email=""):
                   .replace('{{', '{')
                   .replace('}}', '}'))
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -127,7 +127,7 @@ def parse_owner_correction(original_booking, correction_text, slot_hint=None):
                   .replace('{correction_text}', correction_text)
                   .replace('{slot_hint}', hint_text))
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
