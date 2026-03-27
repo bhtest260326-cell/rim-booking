@@ -229,7 +229,7 @@ def api_data():
         if date >= today:
             row = {'id': bid, 'customer_email': b.get('customer_email', '')}
             upcoming.append(_card(row, bd))
-    upcoming.sort(key=lambda x: (x['date'], x['time']))
+    upcoming.sort(key=lambda x: (x['date'] or '', x['time'] or ''))
     today_jobs = [u for u in upcoming if u['date'] == today]
 
     # Workflow pipeline counts
