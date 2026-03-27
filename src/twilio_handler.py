@@ -6,6 +6,7 @@ from ai_parser import format_booking_for_owner, parse_owner_correction
 from state_manager import StateManager
 from calendar_handler import create_calendar_event
 from google_auth import get_gmail_service
+from label_manager import label_confirmed, label_declined
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import base64
@@ -113,6 +114,15 @@ def handle_owner_confirm(pending_id, pending):
     if customer_email:
         send_confirmation_email(customer_email, booking_data)
 
+    # Update Gmail label to Confirmed
+    gmail_msg_id = pending.get('gmail_msg_id')
+    if gmail_msg_id:
+        try:
+            gmail = get_gmail_service()
+            label_confirmed(gmail, gmail_msg_id)
+        except Exception as e:
+            logger.error(f"Label update error on confirm: {e}")
+
     send_sms(os.environ['OWNER_MOBILE'], f"Booking {pending_id} confirmed. Calendar event created. Customer notified.")
     logger.info(f"Booking {pending_id} fully confirmed")
 
@@ -132,6 +142,15 @@ def handle_owner_decline(pending_id, pending):
 
     if customer_email:
         send_decline_email(customer_email, booking_data)
+
+    # Update Gmail label to Declined
+    gmail_msg_id = pending.get('gmail_msg_id')
+    if gmail_msg_id:
+        try:
+            gmail = get_gmail_service()
+            label_declined(gmail, gmail_msg_id)
+        except Exception as e:
+            logger.error(f"Label update error on decline: {e}")
 
     send_sms(os.environ['OWNER_MOBILE'], f"Booking {pending_id} declined. Customer notified.")
 

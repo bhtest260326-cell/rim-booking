@@ -42,7 +42,7 @@ class StateManager:
         except Exception as e:
             logger.error(f"State write error: {e}")
     
-    def create_pending_booking(self, booking_data, source, customer_email=None, raw_message=None):
+    def create_pending_booking(self, booking_data, source, customer_email=None, raw_message=None, msg_id=None):
         """Create a pending booking awaiting owner confirmation."""
         state = self._read_state()
         pending_id = str(uuid.uuid4())[:8].upper()
@@ -53,6 +53,7 @@ class StateManager:
             'source': source,
             'customer_email': customer_email,
             'raw_message': raw_message,
+            'gmail_msg_id': msg_id,
             'created_at': datetime.now(timezone.utc).isoformat(),
             'status': 'awaiting_owner'
         }
