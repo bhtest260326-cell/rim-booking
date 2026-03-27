@@ -84,10 +84,20 @@ def _check_for_injection(text: str, source: str = 'input') -> tuple[str, bool]:
     Returns (sanitised_text, was_suspicious).
     Suspicious sequences are replaced with [removed] so the surrounding
     legitimate booking content can still be extracted.
+
+    Normalises Unicode before scanning to defeat zero-width character and
+    lookalike-glyph bypass attempts (e.g. inserting U+200B between letters).
     """
     if not text:
         return text, False
-    matches = _INJECTION_PATTERNS.findall(text)
+    # Strip zero-width and formatting characters, normalise lookalikes
+    import unicodedata
+    normalised = unicodedata.normalize('NFKD', text)
+    normalised = ''.join(
+        c for c in normalised
+        if unicodedata.category(c) not in ('Mn', 'Cf')  # Mn=non-spacing marks, Cf=format chars
+    )
+    matches = _INJECTION_PATTERNS.findall(normalised)
     if not matches:
         return text, False
     logger.warning(
@@ -505,10 +515,19 @@ def extract_booking_details(message_body, subject="", customer_email=""):
                 booking_data[field] = _sanitise_extracted_field(booking_data[field], field)
 
         # Validate and normalise extracted fields
-        # missing_fields must be a list
+        # missing_fields must be a list; sanitise each item as defence-in-depth
+        # against the AI echoing injected content into this field
         missing_fields = booking_data.pop('missing_fields', [])
         if not isinstance(missing_fields, list):
             missing_fields = [str(missing_fields)] if missing_fields else []
+        missing_fields = [
+            mf for mf in (
+                _sanitise_extracted_field(str(item), 'missing_fields')
+                if isinstance(item, str) else None
+                for item in missing_fields
+            )
+            if mf
+        ]
 
         # service_type must be one of the allowed values
         _allowed_services = {'rim_repair', 'paint_touchup', 'multiple_rims', 'unknown'}

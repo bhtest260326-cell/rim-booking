@@ -521,8 +521,30 @@ class StateManager:
 
     def create_pending_clarification(self, booking_data, customer_email,
                                       thread_id, msg_id, missing_fields):
-        cid = str(uuid.uuid4())[:8].upper()
+        """Create a pending clarification record.
+
+        If a clarification already exists for this thread_id (e.g. due to a
+        duplicate webhook delivery), the existing record is updated in-place
+        rather than creating a second orphaned record.
+        """
         with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT id FROM clarifications WHERE thread_id=?", (thread_id,)
+            ).fetchone()
+            if existing:
+                # Update the existing record rather than creating a duplicate
+                conn.execute("""
+                    UPDATE clarifications
+                    SET booking_data=?, customer_email=?, gmail_msg_id=?,
+                        missing_fields=?
+                    WHERE thread_id=?
+                """, (
+                    json.dumps(booking_data), customer_email, msg_id,
+                    json.dumps(missing_fields), thread_id
+                ))
+                return existing['id']
+
+            cid = str(uuid.uuid4())[:8].upper()
             conn.execute("""
                 INSERT INTO clarifications
                 (id, booking_data, customer_email, thread_id, gmail_msg_id,

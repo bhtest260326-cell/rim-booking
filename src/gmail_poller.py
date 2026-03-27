@@ -622,31 +622,28 @@ def handle_availability_inquiry(msg_id, thread_id, subject, body, customer_email
         state.mark_email_processed(msg_id)
         return
 
-    # Format and send the response
+    # Format and send the response.
+    # ORDERING: create the pending clarification BEFORE sending the email so that
+    # if the email succeeds but clarification creation fails, the customer's reply
+    # can still be retried (the email will already be in their inbox). The inverse
+    # (email fails, clarification exists) is harmless — the clarification record
+    # will be reused when the next polling cycle retries.
+    from email_utils import send_customer_email
+
+    requested_date = booking_data.get('preferred_date')
+    inner_html = format_availability_response(
+        first_name, availability, service_description,
+        missing_fields=missing_fields if missing_fields else None,
+        requested_date=requested_date,
+    )
+
+    service = get_gmail_service()
+    reply_subject = subject if subject.lower().startswith('re:') else f"Re: {subject}"
+
+    still_needed = missing_fields + ['your preferred available day'] if missing_fields else ['your preferred available day']
+
+    # Step 1: persist clarification record first
     try:
-        from email_utils import send_customer_email
-
-        # Extract the customer's requested day (if any) so the response can acknowledge it
-        requested_date = booking_data.get('preferred_date')
-
-        # Pass only the fields still missing — already-provided details won't appear in the list
-        inner_html = format_availability_response(
-            first_name, availability, service_description,
-            missing_fields=missing_fields if missing_fields else None,
-            requested_date=requested_date,
-        )
-
-        service = get_gmail_service()
-        reply_subject = subject if subject.lower().startswith('re:') else f"Re: {subject}"
-
-        send_customer_email(service, customer_email, reply_subject, inner_html, thread_id=thread_id)
-
-        logger.info(f"Availability response sent to {customer_email} ({service_description}, {duration} min)")
-
-        # Store a pending clarification so the customer's reply is routed to
-        # handle_clarification_reply, which merges with the already-extracted data.
-        # This also ensures only still-missing fields are requested on follow-up.
-        still_needed = missing_fields + ['your preferred available day'] if missing_fields else ['your preferred available day']
         state.create_pending_clarification(
             booking_data=booking_data,
             customer_email=customer_email,
@@ -654,15 +651,21 @@ def handle_availability_inquiry(msg_id, thread_id, subject, body, customer_email
             msg_id=msg_id,
             missing_fields=still_needed,
         )
+    except Exception as e:
+        logger.error(f"Could not create pending clarification for {customer_email}: {e}")
 
-        # Apply 'Processed' Gmail label
-        try:
-            label_processed(service, msg_id)
-        except Exception as e:
-            logger.warning(f"Could not label availability reply: {e}")
-
+    # Step 2: send the availability email
+    try:
+        send_customer_email(service, customer_email, reply_subject, inner_html, thread_id=thread_id)
+        logger.info(f"Availability response sent to {customer_email} ({service_description}, {duration} min)")
     except Exception as e:
         logger.error(f"Could not send availability response to {customer_email}: {e}")
+
+    # Step 3: apply Gmail label regardless of email send outcome
+    try:
+        label_processed(service, msg_id)
+    except Exception as e:
+        logger.warning(f"Could not label availability reply: {e}")
 
     state.mark_email_processed(msg_id)
 
