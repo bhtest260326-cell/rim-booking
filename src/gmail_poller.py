@@ -310,6 +310,12 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
         body, subject, customer_email
     )
 
+    # If extraction returned an empty booking (system/API error), do not email the customer.
+    # Leave the email unprocessed so it will be retried on the next poll cycle.
+    if not booking_data:
+        logger.error(f"Extraction returned no data for msg {msg_id} — skipping to allow retry")
+        return
+
     if needs_clarification:
         if get_flag('flag_auto_email_replies'):
             send_clarification_email(service, customer_email, subject, missing_fields,
@@ -352,6 +358,11 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
 
     # Extract data from the reply only
     new_data, new_missing, _ = extract_booking_details(body, subject, customer_email)
+
+    # If extraction failed (API/system error), skip silently — allow retry on next poll
+    if new_data is None or (not new_data and new_missing and 'system issue' in ' '.join(new_missing).lower()):
+        logger.error(f"Extraction error on clarification reply for thread {thread_id} — skipping to allow retry")
+        return
 
     # Merge: original data takes precedence, new data fills in gaps
     merged_data = merge_booking_data(original_data, new_data)
