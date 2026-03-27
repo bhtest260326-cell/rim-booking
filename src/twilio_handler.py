@@ -18,8 +18,32 @@ logger = logging.getLogger(__name__)
 def get_twilio_client():
     return Client(os.environ['TWILIO_ACCOUNT_SID'], os.environ['TWILIO_AUTH_TOKEN'])
 
+def normalise_phone(number):
+    """Convert an Australian phone number to E.164 format (+61XXXXXXXXX).
+
+    Handles formats like: 0452 728 291, 0452728291, +61452728291, 61452728291.
+    Returns the original string unchanged if it doesn't look like an AU mobile/landline.
+    """
+    if not number:
+        return number
+    # Strip everything except digits and leading +
+    digits = re.sub(r'[^\d+]', '', number)
+    # Already E.164
+    if digits.startswith('+'):
+        return digits
+    # Strip country code prefix without +
+    if digits.startswith('61') and len(digits) == 11:
+        return f'+{digits}'
+    # Local format: 04XXXXXXXX or 02/03/07/08 XXXXXXXX
+    if digits.startswith('0') and len(digits) == 10:
+        return f'+61{digits[1:]}'
+    # Return as-is — Twilio will surface the error if still invalid
+    return number
+
+
 def send_sms(to, body):
     try:
+        to = normalise_phone(to)
         client = get_twilio_client()
         message = client.messages.create(
             body=body,

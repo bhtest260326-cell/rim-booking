@@ -1,31 +1,12 @@
-import os
 import logging
 from datetime import datetime, timedelta
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from google_auth import get_calendar_service
 from maps_handler import get_travel_minutes, BUSINESS_ADDRESS
 
 logger = logging.getLogger(__name__)
 
-SCOPES = [
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/calendar'
-]
-
 DEFAULT_JOB_DURATION_MINUTES = 120
-
-def get_calendar_service():
-    creds = Credentials(
-        token=None,
-        refresh_token=os.environ['GOOGLE_REFRESH_TOKEN'],
-        client_id=os.environ['GOOGLE_CLIENT_ID'],
-        client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
-        token_uri='https://oauth2.googleapis.com/token',
-        scopes=SCOPES
-    )
-    return build('calendar', 'v3', credentials=creds)
 
 def _get_previous_job_address(booking_data):
     """Return address of the last confirmed job before this one on the same day, or None."""
