@@ -248,6 +248,14 @@ class StateManager:
             """, (datetime.now(timezone.utc).isoformat(), pending_id))
         return True
 
+    def update_pending_booking_data(self, pending_id, booking_data):
+        with self._conn() as conn:
+            conn.execute("""
+                UPDATE bookings
+                SET booking_data=?, preferred_date=?
+                WHERE id=? AND status='awaiting_owner'
+            """, (json.dumps(booking_data), booking_data.get('preferred_date'), pending_id))
+
     def update_booking_calendar_event(self, pending_id, event_id):
         with self._conn() as conn:
             conn.execute(

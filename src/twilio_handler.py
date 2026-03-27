@@ -121,12 +121,13 @@ def poll_sms_replies():
             limit=20
         )
 
+        owner_mobile = normalise_phone(os.environ.get('OWNER_MOBILE', ''))
         for msg in messages:
             if msg.direction != 'inbound':
                 continue
             if state.is_sms_processed(msg.sid):
                 continue
-            if msg.from_ != os.environ['OWNER_MOBILE']:
+            if normalise_phone(msg.from_) != owner_mobile:
                 state.mark_sms_processed(msg.sid)
                 continue
 
@@ -273,10 +274,7 @@ def handle_owner_correction(pending_id, pending, correction_text):
 
     updated_booking = parse_owner_correction(original, correction_text, slot_hint=slot_hint)
 
-    s = state._read_state()
-    if pending_id in s['pending_bookings']:
-        s['pending_bookings'][pending_id]['booking_data'] = updated_booking
-        state._write_state(s)
+    state.update_pending_booking_data(pending_id, updated_booking)
 
     msg = f"Updated booking:\n\n{format_booking_for_owner(updated_booking)}\n\n[ID:{pending_id}]"
     send_sms(os.environ['OWNER_MOBILE'], msg)
