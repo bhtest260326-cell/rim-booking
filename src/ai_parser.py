@@ -160,3 +160,16 @@ Address: {address}"""
 
     msg += "\n\nReply YES to confirm, NO to decline, or send any changes (e.g. 'find a free slot on 01/04', 'change time to 11am')"
     return msg
+
+
+def merge_booking_data(original, new_data):
+    """
+    Merge two booking data dicts.
+    Original values are kept. New values only fill in null/missing fields.
+    """
+    merged = dict(original)
+    for key, value in new_data.items():
+        if value is not None and value != '' and value != 'unknown':
+            if not merged.get(key):
+                merged[key] = value
+    return merged

@@ -42,7 +42,7 @@ class StateManager:
         except Exception as e:
             logger.error(f"State write error: {e}")
     
-    def create_pending_booking(self, booking_data, source, customer_email=None, raw_message=None, msg_id=None):
+    def create_pending_booking(self, booking_data, source, customer_email=None, raw_message=None, msg_id=None, thread_id=None):
         """Create a pending booking awaiting owner confirmation."""
         state = self._read_state()
         pending_id = str(uuid.uuid4())[:8].upper()
@@ -54,6 +54,7 @@ class StateManager:
             'customer_email': customer_email,
             'raw_message': raw_message,
             'gmail_msg_id': msg_id,
+            'thread_id': thread_id,
             'created_at': datetime.now(timezone.utc).isoformat(),
             'status': 'awaiting_owner'
         }
@@ -173,3 +174,55 @@ class StateManager:
             if len(state['processed_sms']) > 1000:
                 state['processed_sms'] = state['processed_sms'][-500:]
         self._write_state(state)
+
+    def create_pending_clarification(self, booking_data, customer_email, thread_id, msg_id, missing_fields):
+        """Store partial booking data while waiting for customer to provide missing info."""
+        state = self._read_state()
+        if 'pending_clarifications' not in state:
+            state['pending_clarifications'] = {}
+        
+        clarification_id = str(uuid.uuid4())[:8].upper()
+        state['pending_clarifications'][clarification_id] = {
+            'id': clarification_id,
+            'booking_data': booking_data,
+            'customer_email': customer_email,
+            'thread_id': thread_id,
+            'gmail_msg_id': msg_id,
+            'missing_fields': missing_fields,
+            'created_at': datetime.now(timezone.utc).isoformat()
+        }
+        self._write_state(state)
+        return clarification_id
+
+    def get_pending_booking_by_thread(self, thread_id):
+        """Find a pending clarification or booking by Gmail thread ID."""
+        state = self._read_state()
+        
+        # Check clarifications first
+        for item in state.get('pending_clarifications', {}).values():
+            if item.get('thread_id') == thread_id:
+                return item
+        
+        # Check pending bookings
+        for item in state.get('pending_bookings', {}).values():
+            if item.get('thread_id') == thread_id:
+                return item
+        
+        return None
+
+    def update_clarification_booking_data(self, clarification_id, booking_data, missing_fields):
+        """Update partial booking data for an ongoing clarification."""
+        state = self._read_state()
+        if 'pending_clarifications' not in state:
+            return
+        if clarification_id in state['pending_clarifications']:
+            state['pending_clarifications'][clarification_id]['booking_data'] = booking_data
+            state['pending_clarifications'][clarification_id]['missing_fields'] = missing_fields
+            self._write_state(state)
+
+    def remove_pending_clarification(self, clarification_id):
+        """Remove a clarification record once all data is collected."""
+        state = self._read_state()
+        if 'pending_clarifications' in state:
+            state['pending_clarifications'].pop(clarification_id, None)
+            self._write_state(state)
