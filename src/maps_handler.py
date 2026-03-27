@@ -35,6 +35,39 @@ _WA_PUBLIC_HOLIDAYS: set = {
     _dt_mod.date(2027, 9, 27),  # Queen's Birthday (WA)
     _dt_mod.date(2027, 12, 25), # Christmas Day
     _dt_mod.date(2027, 12, 27), # Boxing Day (observed)
+    # 2028
+    _dt_mod.date(2028, 1, 3),   # New Year's Day (observed, 1st is Saturday)
+    _dt_mod.date(2028, 1, 26),  # Australia Day
+    _dt_mod.date(2028, 4, 14),  # Good Friday
+    _dt_mod.date(2028, 4, 15),  # Easter Saturday
+    _dt_mod.date(2028, 4, 17),  # Easter Monday
+    _dt_mod.date(2028, 4, 25),  # Anzac Day
+    _dt_mod.date(2028, 6, 5),   # WA Day
+    _dt_mod.date(2028, 9, 25),  # King's Birthday (WA)
+    _dt_mod.date(2028, 12, 25), # Christmas Day
+    _dt_mod.date(2028, 12, 26), # Boxing Day
+    # 2029
+    _dt_mod.date(2029, 1, 1),   # New Year's Day
+    _dt_mod.date(2029, 1, 28),  # Australia Day (observed, 26th is Saturday)
+    _dt_mod.date(2029, 3, 30),  # Good Friday
+    _dt_mod.date(2029, 3, 31),  # Easter Saturday
+    _dt_mod.date(2029, 4, 2),   # Easter Monday
+    _dt_mod.date(2029, 4, 25),  # Anzac Day
+    _dt_mod.date(2029, 6, 4),   # WA Day
+    _dt_mod.date(2029, 9, 24),  # King's Birthday (WA)
+    _dt_mod.date(2029, 12, 25), # Christmas Day
+    _dt_mod.date(2029, 12, 26), # Boxing Day
+    # 2030
+    _dt_mod.date(2030, 1, 1),   # New Year's Day
+    _dt_mod.date(2030, 1, 28),  # Australia Day (observed, 26th is Saturday)
+    _dt_mod.date(2030, 4, 19),  # Good Friday
+    _dt_mod.date(2030, 4, 20),  # Easter Saturday
+    _dt_mod.date(2030, 4, 22),  # Easter Monday
+    _dt_mod.date(2030, 4, 25),  # Anzac Day
+    _dt_mod.date(2030, 6, 3),   # WA Day
+    _dt_mod.date(2030, 9, 23),  # King's Birthday (WA)
+    _dt_mod.date(2030, 12, 25), # Christmas Day
+    _dt_mod.date(2030, 12, 26), # Boxing Day
 }
 
 
@@ -69,6 +102,11 @@ _DEFAULT_DURATION = 120  # fallback when rim count unknown
 _matrix_cache: dict = {}       # key -> matrix
 _matrix_cache_ts: dict = {}    # key -> float timestamp
 _MATRIX_CACHE_TTL = 1800       # 30 minutes
+
+# Week availability in-memory cache
+_avail_cache: dict = {}
+_avail_cache_ts: dict = {}
+_AVAIL_CACHE_TTL = 300  # 5 minutes
 
 # Known out-of-area Western Australian locations (outside Perth metro)
 _OUT_OF_AREA_KEYWORDS = [
@@ -166,11 +204,18 @@ def get_travel_minutes(origin: str, destination: str, departure_dt=None) -> int:
                 params['traffic_model'] = 'best_guess'
             except Exception:
                 pass  # fall back to no traffic data
-        resp = requests.get(
-            "https://maps.googleapis.com/maps/api/distancematrix/json",
-            params=params,
-            timeout=10
-        )
+        try:
+            resp = requests.get(
+                "https://maps.googleapis.com/maps/api/distancematrix/json",
+                params=params,
+                timeout=10
+            )
+        except requests.exceptions.Timeout:
+            logger.warning("Google Maps API timeout after 10s — using fallback travel time of 30 min")
+            return 30
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Google Maps API request error: {e} — using fallback")
+            return 30
         data = resp.json()
 
         if data.get('status') != 'OK':
@@ -221,17 +266,24 @@ def get_distance_matrix(addresses):
 
     try:
         addrs_ctx = [f"{a}, Perth WA, Australia" for a in addresses]
-        resp = requests.get(
-            "https://maps.googleapis.com/maps/api/distancematrix/json",
-            params={
-                'origins':      '|'.join(addrs_ctx),
-                'destinations': '|'.join(addrs_ctx),
-                'key':          GOOGLE_MAPS_API_KEY,
-                'mode':         'driving',
-                'region':       'au',
-            },
-            timeout=15,
-        )
+        try:
+            resp = requests.get(
+                "https://maps.googleapis.com/maps/api/distancematrix/json",
+                params={
+                    'origins':      '|'.join(addrs_ctx),
+                    'destinations': '|'.join(addrs_ctx),
+                    'key':          GOOGLE_MAPS_API_KEY,
+                    'mode':         'driving',
+                    'region':       'au',
+                },
+                timeout=15,
+            )
+        except requests.exceptions.Timeout:
+            logger.warning("Google Maps API timeout after 15s — using fallback travel time of 30 min")
+            return fallback
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Google Maps API request error: {e} — using fallback")
+            return fallback
         data = resp.json()
 
         if data.get('status') != 'OK':
@@ -502,6 +554,13 @@ def get_week_availability(duration_minutes: int, from_date_str: str = None,
         List of dicts, one per business day:
             {'date': 'YYYY-MM-DD', 'day_name': 'Monday', 'available': True/False}
     """
+    import time as _t
+    _avail_key = (duration_minutes, from_date_str or 'today')
+    if _avail_key in _avail_cache:
+        if _t.time() - _avail_cache_ts.get(_avail_key, 0) < _AVAIL_CACHE_TTL:
+            logger.debug(f"Availability cache hit for {_avail_key}")
+            return _avail_cache[_avail_key]
+
     from state_manager import StateManager
 
     if from_date_str:
@@ -601,5 +660,8 @@ def get_week_availability(duration_minutes: int, from_date_str: str = None,
                 next_business_days.append(cursor)
             cursor += timedelta(days=1)
         result.extend(_check_days(next_business_days))
+
+    _avail_cache[_avail_key] = result
+    _avail_cache_ts[_avail_key] = _t.time()
 
     return result

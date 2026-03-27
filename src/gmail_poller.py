@@ -693,8 +693,14 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
     # --- AI Confidence Gating ---
     try:
         confidence = booking_data.get('confidence', 'medium')
-        if confidence == 'low':
-            logger.warning(f"Low-confidence extraction for email from {customer_email} — flagging for owner review")
+        if booking_data.get('low_confidence'):
+            logger.warning(f"Low confidence extraction for {msg_id} — adding to DLQ for owner review")
+            try:
+                state.add_to_dlq(msg_id, thread_id, customer_email, body[:2000],
+                                 'low_confidence', 'AI confidence was low on extraction')
+            except Exception as e:
+                logger.error(f"Could not add low-confidence booking to DLQ: {e}")
+            # Continue processing — don't skip, just flag it
             existing_notes = booking_data.get('notes', '') or ''
             booking_data['notes'] = f"LOW AI CONFIDENCE — please verify details. {existing_notes}".strip()
     except Exception as e:
@@ -791,6 +797,28 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
                 pass
             state.mark_email_processed(msg_id)
             return
+
+        # Check for returning customer
+        try:
+            from state_manager import _get_conn
+            import json as _json
+            with _get_conn() as _conn:
+                _hist = _conn.execute(
+                    """SELECT csh.completed_date, csh.service_type
+                       FROM customer_service_history csh
+                       WHERE csh.customer_email = ?
+                       ORDER BY csh.completed_date DESC LIMIT 1""",
+                    (customer_email,)
+                ).fetchone()
+            if _hist:
+                last_date = _hist['completed_date']
+                last_svc = (_hist['service_type'] or 'rim repair').replace('_', ' ')
+                returning_note = f"Returning customer — last service: {last_date} ({last_svc})"
+                existing_notes = booking_data.get('notes') or ''
+                booking_data['notes'] = (existing_notes + '\n' + returning_note).strip()
+                logger.info(f"Returning customer detected: {customer_email}, last service {last_date}")
+        except Exception as _e:
+            logger.debug(f"Returning customer check failed (non-fatal): {_e}")
 
         _assign_best_slot(booking_data, state)
         pending_id = state.create_pending_booking(

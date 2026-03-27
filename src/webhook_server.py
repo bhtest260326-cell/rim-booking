@@ -54,6 +54,22 @@ def create_app():
         if not envelope:
             return 'Bad Request: expected JSON', 400
 
+        pubsub_audience = os.environ.get('PUBSUB_AUDIENCE', '')
+        if pubsub_audience:
+            auth_header = request.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                token = auth_header[7:]
+                try:
+                    from google.oauth2 import id_token
+                    from google.auth.transport import requests as grequests
+                    id_token.verify_oauth2_token(token, grequests.Request(), pubsub_audience)
+                except Exception as e:
+                    logger.warning(f"Gmail Pub/Sub JWT verification failed: {e}")
+                    return jsonify({'error': 'Invalid token'}), 403
+            else:
+                logger.warning("Gmail webhook received without Authorization header (PUBSUB_AUDIENCE set but no token)")
+                # Still process — don't block if token missing (gradual rollout)
+
         pubsub_message = envelope.get('message', {})
         data_b64 = pubsub_message.get('data', '')
         if not data_b64:
@@ -94,22 +110,16 @@ def create_app():
     @app.route('/webhook/twilio/sms', methods=['POST'])
     def twilio_sms_webhook():
         # Validate Twilio signature to reject spoofed requests
-        try:
-            auth_token = os.environ['TWILIO_AUTH_TOKEN']
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN', '')
+        if auth_token and not os.environ.get('TWILIO_SKIP_VALIDATION'):
             from twilio.request_validator import RequestValidator
             validator = RequestValidator(auth_token)
+            url = request.url
+            post_data = request.form.to_dict()
             signature = request.headers.get('X-Twilio-Signature', '')
-            # Use the public URL if behind a proxy (Railway sets X-Forwarded-Proto)
-            url = request.url.replace('http://', 'https://', 1)
-            if not validator.validate(url, request.form.to_dict(), signature):
-                logger.warning("Twilio webhook: invalid signature")
-                return 'Unauthorized', 403
-        except KeyError:
-            logger.error("TWILIO_AUTH_TOKEN not set — cannot validate Twilio signature, rejecting request")
-            return 'Service Unavailable', 503
-        except Exception as e:
-            logger.error(f"Twilio signature validation error: {e}")
-            return 'Internal Server Error', 500
+            if not validator.validate(url, post_data, signature):
+                logger.warning("Twilio webhook signature validation failed")
+                return jsonify({'error': 'Invalid signature'}), 403
 
         from_number = request.form.get('From', '')
         body_text = request.form.get('Body', '')

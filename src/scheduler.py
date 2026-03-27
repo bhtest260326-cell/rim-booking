@@ -22,6 +22,34 @@ PERTH_UTC_OFFSET = 8  # UTC+8
 _last_route_opt = 0.0
 _ROUTE_OPT_INTERVAL = 300  # 5 minutes
 
+# Task intervals in seconds
+_TASK_INTERVALS = {
+    'optimize_daily_routes':        300,   # every 5 min
+    'check_calendar_rsvps':         120,   # every 2 min
+    'send_morning_job_notifications': 300,  # every 5 min (idempotent)
+    'send_day_prior_reminders':     600,   # every 10 min
+    'send_post_job_review_requests': 600,  # every 10 min
+    'send_maintenance_reminders':   3600,  # every hour
+    'check_dlq_for_escalation':     1800,  # every 30 min
+    'send_preflight_schedule_report': 300, # every 5 min (idempotent via date key)
+    'send_owner_daily_briefing':    300,   # every 5 min (idempotent via date key)
+    'check_pending_booking_expiry': 600,   # every 10 min
+    'backup_database_to_email':     86400, # daily (also gated by date key)
+    'send_morning_email':           300,   # every 5 min
+    'run_db_cleanup':               604800, # weekly (7 days)
+}
+
+_task_last_run: dict = {}
+
+def _should_run(task_name: str) -> bool:
+    """Return True if enough time has elapsed since this task last ran."""
+    interval = _TASK_INTERVALS.get(task_name, 60)
+    last = _task_last_run.get(task_name, 0)
+    return (_time.monotonic() - last) >= interval
+
+def _mark_ran(task_name: str) -> None:
+    _task_last_run[task_name] = _time.monotonic()
+
 def _perth_now():
     """Return current naive datetime in Perth local time (UTC+8, no DST)."""
     from datetime import timezone as _tz
@@ -29,20 +57,89 @@ def _perth_now():
 
 def run_scheduled_tasks():
     """Run all scheduled tasks - call once per main loop iteration."""
-    try:
-        check_dlq_for_escalation()
-        check_calendar_rsvps()
-        send_preflight_schedule_report()
-        send_morning_job_notifications()
-        send_day_prior_reminders()
-        send_post_job_review_requests()
-        optimize_daily_routes()
-        check_pending_booking_expiry()
-        send_owner_daily_briefing()
-        send_maintenance_reminders()
-        backup_database_to_email()
-    except Exception as e:
-        logger.error(f"Scheduler error: {e}", exc_info=True)
+    if _should_run('check_dlq_for_escalation'):
+        try:
+            check_dlq_for_escalation()
+        except Exception as e:
+            logger.error(f"check_dlq_for_escalation error: {e}", exc_info=True)
+        _mark_ran('check_dlq_for_escalation')
+
+    if _should_run('check_calendar_rsvps'):
+        try:
+            check_calendar_rsvps()
+        except Exception as e:
+            logger.error(f"check_calendar_rsvps error: {e}", exc_info=True)
+        _mark_ran('check_calendar_rsvps')
+
+    if _should_run('send_preflight_schedule_report'):
+        try:
+            send_preflight_schedule_report()
+        except Exception as e:
+            logger.error(f"send_preflight_schedule_report error: {e}", exc_info=True)
+        _mark_ran('send_preflight_schedule_report')
+
+    if _should_run('send_morning_job_notifications'):
+        try:
+            send_morning_job_notifications()
+        except Exception as e:
+            logger.error(f"send_morning_job_notifications error: {e}", exc_info=True)
+        _mark_ran('send_morning_job_notifications')
+
+    if _should_run('send_day_prior_reminders'):
+        try:
+            send_day_prior_reminders()
+        except Exception as e:
+            logger.error(f"send_day_prior_reminders error: {e}", exc_info=True)
+        _mark_ran('send_day_prior_reminders')
+
+    if _should_run('send_post_job_review_requests'):
+        try:
+            send_post_job_review_requests()
+        except Exception as e:
+            logger.error(f"send_post_job_review_requests error: {e}", exc_info=True)
+        _mark_ran('send_post_job_review_requests')
+
+    if _should_run('optimize_daily_routes'):
+        try:
+            optimize_daily_routes()
+        except Exception as e:
+            logger.error(f"optimize_daily_routes error: {e}", exc_info=True)
+        _mark_ran('optimize_daily_routes')
+
+    if _should_run('check_pending_booking_expiry'):
+        try:
+            check_pending_booking_expiry()
+        except Exception as e:
+            logger.error(f"check_pending_booking_expiry error: {e}", exc_info=True)
+        _mark_ran('check_pending_booking_expiry')
+
+    if _should_run('send_owner_daily_briefing'):
+        try:
+            send_owner_daily_briefing()
+        except Exception as e:
+            logger.error(f"send_owner_daily_briefing error: {e}", exc_info=True)
+        _mark_ran('send_owner_daily_briefing')
+
+    if _should_run('send_maintenance_reminders'):
+        try:
+            send_maintenance_reminders()
+        except Exception as e:
+            logger.error(f"send_maintenance_reminders error: {e}", exc_info=True)
+        _mark_ran('send_maintenance_reminders')
+
+    if _should_run('backup_database_to_email'):
+        try:
+            backup_database_to_email()
+        except Exception as e:
+            logger.error(f"backup_database_to_email error: {e}", exc_info=True)
+        _mark_ran('backup_database_to_email')
+
+    if _should_run('run_db_cleanup'):
+        try:
+            run_db_cleanup()
+        except Exception as e:
+            logger.error(f"run_db_cleanup error: {e}", exc_info=True)
+        _mark_ran('run_db_cleanup')
 
 
 def _alert_owner_overrun(date_str, overrun_jobs):
@@ -775,3 +872,52 @@ def backup_database_to_email():
         logger.info(f"Database backup emailed for {today}")
     except Exception as e:
         logger.error(f"Database backup failed: {e}", exc_info=True)
+
+
+def run_db_cleanup():
+    """Weekly housekeeping: prune unbounded-growth tables."""
+    try:
+        from state_manager import _get_conn
+        import sqlite3 as _sqlite3
+
+        with _get_conn() as conn:
+            # Keep only last 10,000 processed_emails entries (prune oldest)
+            try:
+                conn.execute("""
+                    DELETE FROM processed_emails
+                    WHERE msg_id NOT IN (
+                        SELECT msg_id FROM processed_emails
+                        ORDER BY rowid DESC LIMIT 10000
+                    )
+                """)
+                logger.info("DB cleanup: pruned old processed_emails entries")
+            except Exception as e:
+                logger.warning(f"DB cleanup processed_emails error: {e}")
+
+            # Prune overrun alert cooldown keys older than 60 days
+            try:
+                from datetime import datetime as _dt, timedelta as _td
+                cutoff = (_dt.utcnow() - _td(days=60)).strftime('%Y-%m-%d')
+                conn.execute("""
+                    DELETE FROM app_state
+                    WHERE key LIKE 'overrun_alert_sent_%'
+                    AND SUBSTR(key, LENGTH('overrun_alert_sent_') + 1) < ?
+                """, (cutoff,))
+                logger.info("DB cleanup: pruned old overrun alert cooldown keys")
+            except Exception as e:
+                logger.warning(f"DB cleanup app_state error: {e}")
+
+            # Prune failed_extractions that are owner_notified and older than 90 days
+            try:
+                from datetime import datetime as _dt2, timedelta as _td2
+                cutoff2 = (_dt2.utcnow() - _td2(days=90)).isoformat()
+                conn.execute("""
+                    DELETE FROM failed_extractions
+                    WHERE owner_notified = 1 AND last_failed_at < ?
+                """, (cutoff2,))
+                logger.info("DB cleanup: pruned old notified DLQ entries")
+            except Exception as e:
+                logger.warning(f"DB cleanup failed_extractions error: {e}")
+
+    except Exception as e:
+        logger.error(f"DB cleanup error: {e}", exc_info=True)

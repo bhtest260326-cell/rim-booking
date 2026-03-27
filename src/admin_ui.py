@@ -15,8 +15,9 @@ import json
 import hmac
 import html as _html
 import logging
+import functools
 from datetime import datetime, timedelta
-from flask import Blueprint, request, redirect, jsonify
+from flask import Blueprint, request, redirect, jsonify, make_response
 
 from feature_flags import FLAGS, get_all_flags, set_flag, get_flag
 
@@ -28,7 +29,43 @@ admin_bp = Blueprint('admin', __name__)
 
 
 # ---------------------------------------------------------------------------
-# Auth helper
+# Basic Auth setup
+# ---------------------------------------------------------------------------
+
+_admin_pass = os.environ.get('ADMIN_PASSWORD', '')
+_admin_user = os.environ.get('ADMIN_USERNAME', 'admin')
+
+if not _admin_pass:
+    logger.critical(
+        "ADMIN_PASSWORD env var is not set — admin UI is running WITHOUT Basic Auth protection. "
+        "Set ADMIN_PASSWORD in your environment to enable authentication."
+    )
+
+
+def _require_admin_auth(f):
+    """Decorator that enforces HTTP Basic Auth on admin routes.
+
+    Skips auth entirely when ADMIN_PASSWORD is not set (local dev convenience),
+    but logs a critical warning at startup (see above).
+    """
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if _admin_pass:
+            auth = request.authorization
+            if not (
+                auth
+                and auth.username == _admin_user
+                and auth.password == _admin_pass
+            ):
+                response = make_response('Unauthorized', 401)
+                response.headers['WWW-Authenticate'] = 'Basic realm="Admin"'
+                return response
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ---------------------------------------------------------------------------
+# Legacy token-based auth helper (retained for backward compat with JS calls)
 # ---------------------------------------------------------------------------
 
 def _authorised() -> bool:
@@ -436,6 +473,7 @@ def _render_dashboard(flags: dict, pending: list = None) -> str:
 
 
 @admin_bp.route('/admin', methods=['GET'])
+@_require_admin_auth
 def admin_dashboard():
     if not _authorised():
         return (
@@ -476,6 +514,7 @@ def admin_dashboard():
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/admin/toggle', methods=['POST'])
+@_require_admin_auth
 def admin_toggle():
     if not _authorised():
         return 'Unauthorized', 403
@@ -496,6 +535,7 @@ def admin_toggle():
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/admin/api/data', methods=['GET'])
+@_require_admin_auth
 def api_data():
     if not _authorised():
         return jsonify({'error': 'Unauthorized'}), 403
@@ -572,6 +612,7 @@ def api_data():
 
 
 @admin_bp.route('/admin/api/gmail', methods=['GET'])
+@_require_admin_auth
 def api_gmail():
     """Return the last 25 Gmail inbox messages with booking status labels."""
     if not _authorised():
@@ -623,6 +664,7 @@ def api_gmail():
 
 
 @admin_bp.route('/admin/api/toggle', methods=['POST'])
+@_require_admin_auth
 def api_toggle():
     """JSON toggle endpoint used by the local dashboard."""
     if not _authorised():
@@ -640,6 +682,7 @@ def api_toggle():
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/confirm', methods=['POST'])
+@_require_admin_auth
 def api_confirm_booking(booking_id):
     token = request.args.get('token') or request.json.get('token', '') if request.is_json else ''
     if not _authorised():
@@ -659,6 +702,7 @@ def api_confirm_booking(booking_id):
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/decline', methods=['POST'])
+@_require_admin_auth
 def api_decline_booking(booking_id):
     token = request.args.get('token') or (request.json.get('token', '') if request.is_json else '')
     if not _authorised():
@@ -678,6 +722,7 @@ def api_decline_booking(booking_id):
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/notes', methods=['POST'])
+@_require_admin_auth
 def api_booking_add_note(booking_id):
     """Add a timestamped note to a booking."""
     if not _authorised():
@@ -697,6 +742,7 @@ def api_booking_add_note(booking_id):
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/edit', methods=['POST'])
+@_require_admin_auth
 def api_booking_edit(booking_id):
     """Update booking fields (date, time, address, num_rims)."""
     if not _authorised():
@@ -736,6 +782,7 @@ def api_booking_edit(booking_id):
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/decline-with-reason', methods=['POST'])
+@_require_admin_auth
 def api_booking_decline_with_reason(booking_id):
     """Decline a pending booking and record the reason."""
     if not _authorised():
@@ -778,6 +825,7 @@ def api_booking_decline_with_reason(booking_id):
 
 
 @admin_bp.route('/admin/api/analytics', methods=['GET'])
+@_require_admin_auth
 def api_analytics():
     if not _authorised():
         return jsonify({'error': 'Unauthorized'}), 401
@@ -856,6 +904,7 @@ def api_analytics():
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/events', methods=['GET'])
+@_require_admin_auth
 def api_booking_events(booking_id):
     if not _authorised():
         return jsonify({'error': 'Unauthorized'}), 401

@@ -52,7 +52,7 @@ def _background_loop():
         except Exception as e:
             logger.error(f"Background loop error: {e}", exc_info=True)
 
-        time.sleep(60)
+        time.sleep(30)
 
 
 def main():

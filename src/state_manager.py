@@ -134,6 +134,12 @@ def _ensure_schema(conn):
             if 'duplicate column name' not in str(e) and 'already exists' not in str(e):
                 raise
 
+    # Migration: UNIQUE index on clarifications.thread_id
+    try:
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clarifications_thread_unique ON clarifications(thread_id)")
+    except Exception:
+        pass  # Index may already exist or schema differs
+
 
 def _migrate_from_json(conn):
     """One-time migration from the legacy JSON state file, if it exists."""
@@ -290,6 +296,7 @@ class StateManager:
     def create_pending_booking(self, booking_data, source, customer_email=None,
                                 raw_message=None, msg_id=None, thread_id=None):
         pending_id = str(uuid.uuid4())[:8].upper()
+        raw_message_stored = (raw_message or '')[:2000]
         with self._conn() as conn:
             conn.execute("""
                 INSERT INTO bookings
@@ -298,7 +305,7 @@ class StateManager:
                 VALUES (?,?,?,?,?,?,?,?,?,?)
             """, (
                 pending_id, 'awaiting_owner', json.dumps(booking_data),
-                source, customer_email, raw_message, msg_id, thread_id,
+                source, customer_email, raw_message_stored, msg_id, thread_id,
                 booking_data.get('preferred_date'),
                 datetime.now(timezone.utc).isoformat()
             ))
@@ -579,15 +586,22 @@ class StateManager:
                 return existing['id']
 
             cid = str(uuid.uuid4())[:8].upper()
-            conn.execute("""
-                INSERT INTO clarifications
-                (id, booking_data, customer_email, thread_id, gmail_msg_id,
-                 missing_fields, created_at)
-                VALUES (?,?,?,?,?,?,?)
-            """, (
-                cid, json.dumps(booking_data), customer_email, thread_id, msg_id,
-                json.dumps(missing_fields), datetime.now(timezone.utc).isoformat()
-            ))
+            try:
+                conn.execute("""
+                    INSERT INTO clarifications
+                    (id, booking_data, customer_email, thread_id, gmail_msg_id,
+                     missing_fields, created_at)
+                    VALUES (?,?,?,?,?,?,?)
+                """, (
+                    cid, json.dumps(booking_data), customer_email, thread_id, msg_id,
+                    json.dumps(missing_fields), datetime.now(timezone.utc).isoformat()
+                ))
+            except sqlite3.IntegrityError:
+                logger.warning(f"create_pending_clarification: IntegrityError for thread_id={thread_id!r} — duplicate insert skipped")
+                existing2 = conn.execute(
+                    "SELECT id FROM clarifications WHERE thread_id=?", (thread_id,)
+                ).fetchone()
+                return existing2['id'] if existing2 else cid
         return cid
 
     def get_pending_booking_by_thread(self, thread_id):
