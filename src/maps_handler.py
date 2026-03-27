@@ -479,71 +479,85 @@ def get_week_availability(duration_minutes: int, from_date_str: str = None,
         cursor += timedelta(days=1)
 
     state = StateManager()
-    result = []
 
     day_start_hour = BUSINESS_START_HOUR   # 8
     day_end_hour   = BUSINESS_END_HOUR     # 17
 
-    for day in business_days:
-        date_str  = day.strftime('%Y-%m-%d')
-        day_name  = day.strftime('%A')
-        day_start = day.replace(hour=day_start_hour, minute=0, second=0, microsecond=0)
-        day_end   = day.replace(hour=day_end_hour,   minute=0, second=0, microsecond=0)
+    def _check_days(days_list):
+        """Compute availability for a list of day datetimes, return list of result dicts."""
+        out = []
+        for day in days_list:
+            date_str  = day.strftime('%Y-%m-%d')
+            day_name  = day.strftime('%A')
+            day_start = day.replace(hour=day_start_hour, minute=0, second=0, microsecond=0)
+            day_end   = day.replace(hour=day_end_hour,   minute=0, second=0, microsecond=0)
 
-        existing_bookings = state.get_confirmed_bookings_for_date(date_str)
+            existing_bookings = state.get_confirmed_bookings_for_date(date_str)
 
-        if not existing_bookings:
-            # Empty day — must account for travel to job and back to base
-            required = duration_minutes + assumed_travel_minutes * 2
-            available = required <= (day_end_hour - day_start_hour) * 60
-        else:
-            # Build sorted (start, end) intervals for confirmed jobs
-            intervals = []
-            for bd in existing_bookings:
-                t = bd.get('preferred_time') or '09:00'
-                try:
-                    job_start = datetime.strptime(f"{date_str} {t}", "%Y-%m-%d %H:%M")
-                except ValueError:
-                    continue
-                job_end = job_start + timedelta(minutes=get_job_duration_minutes(bd))
-                intervals.append((job_start, job_end))
-            intervals.sort(key=lambda x: x[0])
+            if not existing_bookings:
+                # Empty day — must account for travel to job and back to base
+                required = duration_minutes + assumed_travel_minutes * 2
+                available = required <= (day_end_hour - day_start_hour) * 60
+            else:
+                # Build sorted (start, end) intervals for confirmed jobs
+                intervals = []
+                for bd in existing_bookings:
+                    t = bd.get('preferred_time') or '09:00'
+                    try:
+                        job_start = datetime.strptime(f"{date_str} {t}", "%Y-%m-%d %H:%M")
+                    except ValueError:
+                        continue
+                    job_end = job_start + timedelta(minutes=get_job_duration_minutes(bd))
+                    intervals.append((job_start, job_end))
+                intervals.sort(key=lambda x: x[0])
 
-            # Walk gaps: tag each with its position so travel overhead is applied correctly.
-            # gap type: 'before_first' | 'between' | 'after_last'
-            available = False
-            gaps = []  # list of (gap_start, gap_end, gap_type)
-            prev_end = day_start
+                # Walk gaps: tag each with its position so travel overhead is applied correctly.
+                # gap type: 'before_first' | 'between' | 'after_last'
+                available = False
+                gaps = []  # list of (gap_start, gap_end, gap_type)
+                prev_end = day_start
 
-            for i, (job_start, job_end) in enumerate(intervals):
-                if job_start > prev_end:
-                    gap_type = 'before_first' if i == 0 else 'between'
-                    gaps.append((prev_end, job_start, gap_type))
-                prev_end = max(prev_end, job_end)
+                for i, (job_start, job_end) in enumerate(intervals):
+                    if job_start > prev_end:
+                        gap_type = 'before_first' if i == 0 else 'between'
+                        gaps.append((prev_end, job_start, gap_type))
+                    prev_end = max(prev_end, job_end)
 
-            # Gap after last job
-            if day_end > prev_end:
-                gaps.append((prev_end, day_end, 'after_last'))
+                # Gap after last job
+                if day_end > prev_end:
+                    gaps.append((prev_end, day_end, 'after_last'))
 
-            for gap_start, gap_end, gap_type in gaps:
-                gap_minutes = (gap_end - gap_start).total_seconds() / 60
+                for gap_start, gap_end, gap_type in gaps:
+                    gap_minutes = (gap_end - gap_start).total_seconds() / 60
 
-                # Travel overhead depends on position in the day
-                if gap_type == 'before_first':
-                    # Travel from base to new job only (next job follows immediately after)
-                    travel_overhead = assumed_travel_minutes
-                elif gap_type == 'between':
-                    # Travel from previous job to new job, then from new job to next job
-                    travel_overhead = assumed_travel_minutes * 2
-                else:  # after_last
-                    # Travel from last job to new job (no following job to travel to)
-                    travel_overhead = assumed_travel_minutes
+                    # Travel overhead depends on position in the day
+                    if gap_type == 'before_first':
+                        # Travel from base to new job only (next job follows immediately after)
+                        travel_overhead = assumed_travel_minutes
+                    elif gap_type == 'between':
+                        # Travel from previous job to new job, then from new job to next job
+                        travel_overhead = assumed_travel_minutes * 2
+                    else:  # after_last
+                        # Travel from last job to new job (no following job to travel to)
+                        travel_overhead = assumed_travel_minutes
 
-                required = duration_minutes + travel_overhead
-                if gap_minutes >= required:
-                    available = True
-                    break
+                    required = duration_minutes + travel_overhead
+                    if gap_minutes >= required:
+                        available = True
+                        break
 
-        result.append({'date': date_str, 'day_name': day_name, 'available': available})
+            out.append({'date': date_str, 'day_name': day_name, 'available': available})
+        return out
+
+    result = _check_days(business_days)
+
+    # If none of the first 5 days are available, also check the following 5 business days
+    if not any(s['available'] for s in result):
+        next_business_days = []
+        while len(next_business_days) < 5:
+            if _is_business_day(cursor.date()):
+                next_business_days.append(cursor)
+            cursor += timedelta(days=1)
+        result.extend(_check_days(next_business_days))
 
     return result

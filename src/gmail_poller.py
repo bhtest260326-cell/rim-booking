@@ -480,7 +480,7 @@ def _send_date_full_email(service, to_email: str, subject: str, requested_date: 
     try:
         from datetime import datetime as _dt
         try:
-            day_name = _dt.strptime(requested_date, '%Y-%m-%d').strftime('%A %-d %B')
+            day_name = _dt.strptime(requested_date, '%Y-%m-%d').strftime('%A %-d %b')
         except Exception:
             day_name = requested_date
 
@@ -488,14 +488,32 @@ def _send_date_full_email(service, to_email: str, subject: str, requested_date: 
         availability = get_week_availability(duration, assumed_travel_minutes=25)
 
         table_rows = ''
-        for slot in availability:
+        for idx, slot in enumerate(availability):
+            # Insert a separator row before the 6th item when next-week days were appended
+            if idx == 5 and len(availability) > 5:
+                table_rows += (
+                    '<tr><td colspan="2" style="padding:6px 14px;font-size:12px;font-weight:700;'
+                    'color:#64748b;background:#f8fafc;text-transform:uppercase;'
+                    'letter-spacing:0.05em;">Following week</td></tr>'
+                )
+
             if slot['available']:
                 badge = '<span style="color:#16a34a;font-weight:600;">Yes</span>'
             else:
                 badge = '<span style="color:#dc2626;font-weight:600;">No</span>'
+
+            # Format date as "30 Mar" (no leading zero, cross-platform)
+            try:
+                slot_dt = _dt.strptime(slot['date'], '%Y-%m-%d')
+                short_date = slot_dt.strftime('%d %b').lstrip('0')
+            except Exception:
+                short_date = ''
+
+            day_with_date = f'{slot["day_name"]} {short_date}' if short_date else slot["day_name"]
+
             table_rows += (
                 f'<tr>'
-                f'<td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;">{slot["day_name"]}</td>'
+                f'<td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;">{day_with_date}</td>'
                 f'<td style="padding:10px 16px;border-bottom:1px solid #e2e8f0;">{badge}</td>'
                 f'</tr>'
             )

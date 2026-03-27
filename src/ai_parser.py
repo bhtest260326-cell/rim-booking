@@ -250,24 +250,42 @@ def format_availability_response(
                 break
 
     table_rows = ''
-    for slot in availability:
+    for idx, slot in enumerate(availability):
+        # Insert a separator row before the 6th item when next-week days were appended
+        if idx == 5 and len(availability) > 5:
+            table_rows += (
+                '<tr><td colspan="2" style="padding:6px 14px;font-size:12px;font-weight:700;'
+                'color:#64748b;background:#f8fafc;text-transform:uppercase;'
+                'letter-spacing:0.05em;">Following week</td></tr>'
+            )
+
         is_requested = requested_slot is not None and slot.get('date') == requested_date
         if slot['available']:
             badge = f'<span style="color:#16a34a;font-weight:700;">&#10003; Yes</span>'
         else:
             badge = f'<span style="color:{RED};font-weight:700;">&#10007; No</span>'
 
+        # Format date as "30 Mar" (no leading zero, cross-platform)
+        try:
+            from datetime import datetime as _dt
+            slot_dt = _dt.strptime(slot['date'], '%Y-%m-%d')
+            short_date = slot_dt.strftime('%d %b').lstrip('0')
+        except Exception:
+            short_date = ''
+
+        day_with_date = f'{slot["day_name"]} {short_date}' if short_date else slot["day_name"]
+
         if is_requested:
             # Highlight the row with a light amber background and append a note to the day name
             row_bg = 'background:#fffbeb;'
             day_cell = (
-                f'{slot["day_name"]}'
+                f'{day_with_date}'
                 f'&nbsp;<span style="font-size:12px;color:#92400e;font-weight:600;">'
                 f'(your requested day)</span>'
             )
         else:
             row_bg = ''
-            day_cell = slot["day_name"]
+            day_cell = day_with_date
 
         table_rows += (
             f'<tr style="{row_bg}">'
@@ -281,16 +299,23 @@ def format_availability_response(
     requested_day_sentence = ''
     if requested_slot is not None:
         day_name = requested_slot['day_name']
+        try:
+            from datetime import datetime as _dt
+            req_dt = _dt.strptime(requested_slot['date'], '%Y-%m-%d')
+            req_short_date = req_dt.strftime('%d %b').lstrip('0')
+            day_name_with_date = f'{day_name} {req_short_date}'
+        except Exception:
+            day_name_with_date = day_name
         if requested_slot['available']:
             requested_day_sentence = (
                 f'<p style="color:{DARK};font-size:15px;line-height:1.65;margin:0 0 12px;">'
-                f'Great news \u2014 <strong>{day_name}</strong> is available! '
+                f'Great news \u2014 <strong>{day_name_with_date}</strong> is available! '
                 f'You can see the full week below.</p>'
             )
         else:
             requested_day_sentence = (
                 f'<p style="color:{DARK};font-size:15px;line-height:1.65;margin:0 0 12px;">'
-                f'Unfortunately, <strong>{day_name}</strong> is fully booked. '
+                f'Unfortunately, <strong>{day_name_with_date}</strong> is fully booked. '
                 f'Please choose one of the available days below.</p>'
             )
 
