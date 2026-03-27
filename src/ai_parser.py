@@ -37,17 +37,20 @@ Return ONLY a JSON object with this exact structure:
 
 Required fields are: customer_name, address (or suburb), preferred_date, service_type.
 customer_phone is required if no email is available.
+vehicle_colour is NOT required — never ask for it.
+
+For address and suburb:
+- If a full street address is provided, use it as-is in the address field
+- If a postcode is provided, infer the suburb from it (e.g. 6008 = Subiaco, 6150 = Willetton, 6107 = Cannington) and populate the suburb field
+- If only a suburb name is given with no street, put it in suburb field
+- Never ask for suburb if a street address or postcode was already provided
 
 For preferred_date:
 - Interpret relative dates like "tomorrow", "next Tuesday" based on today's date
-- Vague availability MUST always resolve to a concrete date — NEVER add preferred_date to missing_fields when any timeframe hint is present. Examples:
-  * "anytime next week" / "any day next week" → first Monday of next week at 09:00
-  * "flexible" / "whenever suits" / "no preference" / "as soon as possible" → next available Monday at 09:00
-  * "sometime this week" → next available weekday this week at 09:00
-  * "next fortnight" → Monday in two weeks at 09:00
+- If they give a range like "anytime next week" or "any day next week", pick the first available weekday in that range
 - If they say "morning" use 09:00, "afternoon" use 13:00, "end of day" use 16:00
 - If they give a time window like "between 9am and 5pm", use 09:00 as preferred_time and note the window in notes
-- Only mark preferred_date as missing if NO date, week, or timeframe whatsoever is mentioned
+- Only mark preferred_date as missing if NO date or timeframe is mentioned at all
 
 Return ONLY the JSON object, no other text."""
 
@@ -60,9 +63,9 @@ Current booking data:
 
 Owner's instruction:
 "{correction_text}"
-{slot_hint}
+
 Interpret the instruction and update the booking accordingly. Examples:
-- "Find a free 2 hour slot on 01/04" means set preferred_date to the next 01/04 and preferred_time to the next available slot (use the slot hint above if provided)
+- "Find a free 2 hour slot on 01/04" means set preferred_date to the next 01/04, preferred_time to 09:00, and add a note about 2 hour duration
 - "change time to 11am" means set preferred_time to 11:00
 - "address is 22 Smith St Balcatta" means set address field
 - "move to next Thursday" means calculate next Thursday from today and set preferred_date
@@ -78,15 +81,10 @@ def extract_booking_details(message_body, subject="", customer_email=""):
         if subject:
             full_message = f"Subject: {subject}\n\n{message_body}"
 
-        prompt = (EXTRACTION_PROMPT
-                  .replace('{today}', today)
-                  .replace('{message}', full_message)
-                  .replace('{{', '{')
-                  .replace('}}', '}'))
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": EXTRACTION_PROMPT.format(today=today, message=full_message)}]
         )
 
         raw = response.content[0].text.strip()
@@ -106,30 +104,24 @@ def extract_booking_details(message_body, subject="", customer_email=""):
         return booking_data, missing_fields, needs_clarification
 
     except json.JSONDecodeError as e:
-        logger.error(f"AI_PARSE_FAIL json_decode: {e}")
+        logger.error(f"JSON parse error: {e}")
         return {}, ["the details of your booking request — please resend with your name, address, preferred date, and service type"], True
     except Exception as e:
-        logger.error(f"AI_PARSE_FAIL {type(e).__name__}: {e}", exc_info=True)
+        logger.error(f"AI extraction error: {e}", exc_info=True)
         return {}, ["the details of your booking request — please resend with your name, address, preferred date, and service type"], True
 
 
-def parse_owner_correction(original_booking, correction_text, slot_hint=None):
+def parse_owner_correction(original_booking, correction_text):
     try:
         today = datetime.now().strftime("%A %d %B %Y")
-        hint_text = (
-            f"\nAvailable slot (accounting for travel time between jobs): {slot_hint}\n"
-            f"Use this date and time when the owner asks to find a free slot.\n"
-            if slot_hint else ""
-        )
-        prompt = (CORRECTION_PROMPT
-                  .replace('{today}', today)
-                  .replace('{booking_json}', json.dumps(original_booking, indent=2))
-                  .replace('{correction_text}', correction_text)
-                  .replace('{slot_hint}', hint_text))
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": CORRECTION_PROMPT.format(
+                today=today,
+                booking_json=json.dumps(original_booking, indent=2),
+                correction_text=correction_text
+            )}]
         )
 
         raw = response.content[0].text.strip()
@@ -148,21 +140,37 @@ def parse_owner_correction(original_booking, correction_text, slot_hint=None):
 
 
 def format_booking_for_owner(booking_data):
-    name = (booking_data.get('customer_name') or 'Unknown').split()[0]
+    name = booking_data.get('customer_name') or 'Unknown'
     phone = booking_data.get('customer_phone') or booking_data.get('customer_email') or 'N/A'
     vehicle = ' '.join(filter(None, [
         booking_data.get('vehicle_colour'),
         booking_data.get('vehicle_make'),
         booking_data.get('vehicle_model')
-    ])) or '?'
-    service = booking_data.get('service_type', 'rim_repair').replace('_', ' ').title()
+    ])) or 'Unknown vehicle'
+
+    service = booking_data.get('service_type', 'unknown').replace('_', ' ').title()
     num_rims = booking_data.get('num_rims')
     if num_rims:
         service += f" x{num_rims}"
+
     date = booking_data.get('preferred_date') or 'TBC'
     time = booking_data.get('preferred_time') or 'TBC'
     address = booking_data.get('address') or booking_data.get('suburb') or 'TBC'
-    return f"JOB {name}|{phone}\n{vehicle}\n{service}\n{date} {time}\n{address}\nYES/NO/edit"
+    notes = booking_data.get('notes')
+
+    msg = f"""NEW BOOKING REQUEST
+Name: {name}
+Contact: {phone}
+Vehicle: {vehicle}
+Service: {service}
+Date: {date} at {time}
+Address: {address}"""
+
+    if notes:
+        msg += f"\nNotes: {notes}"
+
+    msg += "\n\nReply YES to confirm, NO to decline, or send any changes (e.g. 'find a free slot on 01/04', 'change time to 11am')"
+    return msg
 
 
 def merge_booking_data(original, new_data):
