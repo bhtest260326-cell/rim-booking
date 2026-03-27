@@ -40,7 +40,7 @@ def check_calendar_rsvps():
     if not pending:
         return
 
-    from calendar_handler import get_event_attendee_status
+    from calendar_handler import get_event_attendee_status, get_event_datetime
     from twilio_handler import handle_owner_confirm, handle_owner_decline
 
     for booking in pending:
@@ -51,6 +51,19 @@ def check_calendar_rsvps():
 
         status = get_event_attendee_status(event_id, owner_email)
         if status == 'accepted':
+            # Read the event's current date/time — owner may have dragged it to a new slot
+            event_dt = get_event_datetime(event_id)
+            if event_dt:
+                bd = dict(booking.get('booking_data', {}))
+                old_date = bd.get('preferred_date')
+                old_time = bd.get('preferred_time')
+                bd['preferred_date'] = event_dt['date']
+                bd['preferred_time'] = event_dt['time']
+                booking = dict(booking)
+                booking['booking_data'] = bd
+                state.update_pending_booking_data(booking_id, bd)
+                if event_dt['date'] != old_date or event_dt['time'] != old_time:
+                    logger.info(f"Booking {booking_id} rescheduled by calendar drag: {old_date} {old_time} → {event_dt['date']} {event_dt['time']}")
             logger.info(f"Calendar RSVP accepted for booking {booking_id} — confirming")
             handle_owner_confirm(booking_id, booking)
         elif status == 'declined':

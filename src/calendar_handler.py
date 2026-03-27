@@ -260,6 +260,27 @@ Payment: EFTPOS on the day
         return None
 
 
+def get_event_datetime(event_id):
+    """Return {'date': 'YYYY-MM-DD', 'time': 'HH:MM'} reflecting the event's current
+    start time (after any drag/reschedule by the owner), or None on failure."""
+    try:
+        service = get_calendar_service()
+        calendar_id = os.environ['GOOGLE_CALENDAR_ID']
+        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        start = event.get('start', {})
+        dt_str = start.get('dateTime')
+        if dt_str:
+            dt = datetime.fromisoformat(dt_str)
+            return {'date': dt.strftime('%Y-%m-%d'), 'time': dt.strftime('%H:%M')}
+        date_str = start.get('date')
+        if date_str:
+            return {'date': date_str, 'time': '09:00'}
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching event datetime for {event_id}: {e}")
+        return None
+
+
 def get_event_attendee_status(event_id, attendee_email):
     """
     Return the RSVP status for a specific attendee on a calendar event.
