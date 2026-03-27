@@ -27,6 +27,7 @@ Return ONLY a JSON object with this exact structure:
   "service_type": "rim_repair | paint_touchup | multiple_rims | unknown",
   "num_rims": "integer or null",
   "preferred_date": "YYYY-MM-DD or null",
+  "alternative_dates": ["YYYY-MM-DD", ...] or [],
   "preferred_time": "HH:MM or null",
   "address": "string or null",
   "suburb": "string or null",
@@ -45,9 +46,11 @@ For address and suburb:
 - If only a suburb name is given with no street, put it in suburb field
 - Never ask for suburb if a street address or postcode was already provided
 
-For preferred_date:
+For preferred_date and alternative_dates:
 - Interpret relative dates like "tomorrow", "next Tuesday" based on today's date
-- If they give a range like "anytime next week" or "any day next week", pick the first available weekday in that range
+- When a customer names SPECIFIC days as options (e.g. "Tuesday or Wednesday", "Monday, Wednesday or Friday"), set preferred_date to the EARLIEST of those days and put the rest in alternative_dates in order. ONLY use days the customer actually mentioned — never select a day they did not name.
+- If they give a range like "anytime next week" or "any day next week", set preferred_date to the first weekday of that range and leave alternative_dates empty
+- Never pick a day of the week that the customer did not explicitly mention or imply
 - If they say "morning" use 09:00, "afternoon" use 13:00, "end of day" use 16:00
 - If they give a time window like "between 9am and 5pm", use 09:00 as preferred_time and note the window in notes
 - Only mark preferred_date as missing if NO date or timeframe is mentioned at all

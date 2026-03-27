@@ -246,11 +246,9 @@ def process_history_notification(new_history_id):
 def _assign_best_slot(booking_data, state):
     """Compute the next available slot on the requested date and update booking_data in place.
 
-    Checks confirmed bookings for the day, calculates travel time from the previous job
-    (or the business base if it's the first job), and picks the earliest gap that fits a
-    2-hour job. Advances to the next business day if nothing fits today.
-
-    The customer's original preferred_time is preserved in notes if it changed.
+    Tries preferred_date first, then alternative_dates in order (customer's stated options),
+    then falls back to next business day only if none of the preferred dates have room.
+    The customer's original preference is preserved in notes if the date changes.
     """
     target_date = booking_data.get('preferred_date')
     if not target_date:
@@ -259,22 +257,43 @@ def _assign_best_slot(booking_data, state):
     try:
         from maps_handler import find_next_available_slot
         job_address = booking_data.get('address') or booking_data.get('suburb') or ''
-        day_bookings = state.get_confirmed_bookings_for_date(target_date)
-
-        found_date, found_time = find_next_available_slot(
-            target_date, job_address, day_bookings, new_booking_data=booking_data
-        )
-
         original_time = booking_data.get('preferred_time')
+
+        # Build the ordered list of dates the customer is happy with
+        alternative_dates = booking_data.get('alternative_dates') or []
+        preferred_dates = [target_date] + [d for d in alternative_dates if d and d != target_date]
+
+        found_date = None
+        found_time = None
+
+        for candidate_date in preferred_dates:
+            day_bookings = state.get_confirmed_bookings_for_date(candidate_date)
+            slot_date, slot_time = find_next_available_slot(
+                candidate_date, job_address, day_bookings, new_booking_data=booking_data
+            )
+            # find_next_available_slot advances to next business day if no room —
+            # only accept the result if it actually landed on the candidate date
+            if slot_date == candidate_date:
+                found_date = slot_date
+                found_time = slot_time
+                break
+
+        # None of the preferred dates had room — fall back to next business day
+        if not found_date:
+            day_bookings = state.get_confirmed_bookings_for_date(target_date)
+            found_date, found_time = find_next_available_slot(
+                target_date, job_address, day_bookings, new_booking_data=booking_data
+            )
+
         if found_date != target_date or found_time != original_time:
-            # Record what the customer asked for so the owner can see it
-            pref_note = f"Customer requested {target_date} around {original_time or 'any time'}"
+            pref_days = ', '.join(preferred_dates) if len(preferred_dates) > 1 else target_date
+            pref_note = f"Customer requested {pref_days} around {original_time or 'any time'}"
             existing_notes = booking_data.get('notes') or ''
             booking_data['notes'] = f"{pref_note}. {existing_notes}".strip('. ') if existing_notes else pref_note
 
         booking_data['preferred_date'] = found_date
         booking_data['preferred_time'] = found_time
-        logger.info(f"Slot assigned via Maps: {found_date} {found_time} (requested {target_date} {original_time})")
+        logger.info(f"Slot assigned: {found_date} {found_time} (preferred {preferred_dates}, original time {original_time})")
     except Exception as e:
         logger.warning(f"Slot computation skipped, keeping AI-extracted time: {e}")
 
