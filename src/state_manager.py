@@ -12,7 +12,9 @@ DB_PATH = os.path.splitext(_STATE_FILE_JSON)[0] + '.db'
 
 
 def _get_conn():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")   # safe concurrent reads/writes
@@ -122,17 +124,24 @@ def _ensure_schema(conn):
         "ALTER TABLE bookings ADD COLUMN reminders_sent TEXT NOT NULL DEFAULT '[]'",
         "ALTER TABLE bookings ADD COLUMN confirmed_at TEXT",
         "ALTER TABLE bookings ADD COLUMN declined_at TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_svc_history_booking ON customer_service_history(booking_id)",
     ]
     for sql in _migrations:
         try:
             conn.execute(sql)
             conn.commit()
-        except Exception:
-            pass  # column already exists
+        except sqlite3.OperationalError as e:
+            if 'duplicate column name' not in str(e) and 'already exists' not in str(e):
+                raise
 
 
 def _migrate_from_json(conn):
     """One-time migration from the legacy JSON state file, if it exists."""
+    already = conn.execute(
+        "SELECT value FROM app_state WHERE key='json_migration_done'"
+    ).fetchone()
+    if already:
+        return
     if not os.path.exists(_STATE_FILE_JSON):
         return
     try:
@@ -213,6 +222,7 @@ def _migrate_from_json(conn):
         except Exception:
             pass
 
+    conn.execute("INSERT OR REPLACE INTO app_state(key,value) VALUES ('json_migration_done','1')")
     conn.commit()
 
     if migrated:
@@ -241,7 +251,10 @@ def _check_time_conflict(conn, preferred_date: str, preferred_time: str,
             if exclude_booking_id and row['id'] == exclude_booking_id:
                 continue
             bd = json.loads(row['booking_data'])
-            existing_time = bd.get('preferred_time', '09:00')
+            existing_time = bd.get('preferred_time')
+            if not existing_time:
+                logger.warning(f"Booking {row['id']} has no preferred_time; skipping in conflict check")
+                continue
             from maps_handler import get_job_duration_minutes
             existing_duration = get_job_duration_minutes(bd)
             existing_start = datetime.strptime(f"{preferred_date} {existing_time}", "%Y-%m-%d %H:%M")
@@ -312,6 +325,7 @@ class StateManager:
 
     def confirm_booking(self, pending_id, booking_data=None):
         with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT id FROM bookings WHERE id=? AND status='awaiting_owner'",
                 (pending_id,)
@@ -362,9 +376,13 @@ class StateManager:
 
     def decline_booking(self, pending_id):
         with self._conn() as conn:
-            conn.execute("""
-                UPDATE bookings SET status='declined', declined_at=? WHERE id=?
+            result = conn.execute("""
+                UPDATE bookings SET status='declined', declined_at=?
+                WHERE id=? AND status='awaiting_owner'
             """, (datetime.now(timezone.utc).isoformat(), pending_id))
+            if result.rowcount == 0:
+                logger.warning(f"decline_booking: {pending_id} not in awaiting_owner state")
+                return False
         self.log_booking_event(pending_id, 'declined', actor='system')
         return True
 
@@ -651,17 +669,17 @@ class StateManager:
         now = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
             conn.execute("""
-                INSERT OR IGNORE INTO failed_extractions
+                INSERT INTO failed_extractions
                 (id, gmail_msg_id, thread_id, customer_email, raw_body,
-                 error_type, error_message, first_failed_at, last_failed_at)
-                VALUES (?,?,?,?,?,?,?,?,?)
+                 error_type, error_message, failure_count, first_failed_at, last_failed_at)
+                VALUES (?,?,?,?,?,?,?,1,?,?)
+                ON CONFLICT(gmail_msg_id) DO UPDATE SET
+                    failure_count  = failure_count + 1,
+                    last_failed_at = excluded.last_failed_at,
+                    error_type     = excluded.error_type,
+                    error_message  = excluded.error_message
             """, (str(uuid.uuid4()), msg_id, thread_id, customer_email,
                   (raw_body or '')[:2000], error_type, error_message, now, now))
-            conn.execute("""
-                UPDATE failed_extractions
-                SET failure_count = failure_count + 1, last_failed_at = ?
-                WHERE gmail_msg_id = ? AND first_failed_at != last_failed_at
-            """, (now, msg_id))
 
     def get_unnotified_dlq_entries(self) -> list:
         with self._conn() as conn:
@@ -715,17 +733,21 @@ class StateManager:
             logger.warning(f"record_completed_service failed: {e}")
 
     def get_maintenance_reminders_due(self, today_str: str, interval: str) -> list:
-        """Return service history rows with reminders due today. interval: '6m' or '12m'."""
+        """Return service history rows with reminders due on or before today. interval: '6m' or '12m'."""
+        if interval not in ('6m', '12m'):
+            raise ValueError(f"Invalid interval: {interval!r}")
         col_date = f'next_reminder_{interval}'
         col_sent = f'reminder_{interval}_sent'
         with self._conn() as conn:
             rows = conn.execute(f"""
                 SELECT * FROM customer_service_history
-                WHERE {col_date} = ? AND {col_sent} = 0
+                WHERE {col_date} <= ? AND {col_sent} = 0
             """, (today_str,)).fetchall()
         return [dict(r) for r in rows]
 
     def mark_maintenance_reminder_sent(self, history_id: int, interval: str) -> None:
+        if interval not in ('6m', '12m'):
+            raise ValueError(f"Invalid interval: {interval!r}")
         col_sent = f'reminder_{interval}_sent'
         with self._conn() as conn:
             conn.execute(f"UPDATE customer_service_history SET {col_sent} = 1 WHERE id = ?", (history_id,))
@@ -737,17 +759,17 @@ class StateManager:
     def cancel_all_bookings_for_date(self, date_str: str, reason: str, cancelled_by: str = 'owner') -> list:
         """Bulk cancel all confirmed bookings for a date. Returns list of cancelled booking dicts."""
         with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute("""
                 SELECT id, booking_data, customer_email, thread_id
                 FROM bookings
                 WHERE preferred_date = ? AND status = 'confirmed'
             """, (date_str,)).fetchall()
             bookings = [dict(r) for r in rows]
-            if bookings:
-                conn.execute("""
-                    UPDATE bookings SET status = 'owner_cancelled'
-                    WHERE preferred_date = ? AND status = 'confirmed'
-                """, (date_str,))
+            conn.execute("""
+                UPDATE bookings SET status = 'owner_cancelled'
+                WHERE preferred_date = ? AND status = 'confirmed'
+            """, (date_str,))
         for b in bookings:
             self.log_booking_event(b['id'], 'owner_day_cancelled', actor=cancelled_by,
                                    details={'reason': reason, 'date': date_str})
