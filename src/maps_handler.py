@@ -18,8 +18,8 @@ def _ceil_15(dt):
 
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 BUSINESS_ADDRESS = '76 Albert St, Osborne Park WA 6017'
-BUSINESS_START_HOUR = 8    # 8:00 AM — first job of the day
-BUSINESS_LATEST_START = 15  # 3:00 PM — last job must start by this to finish by ~5pm
+BUSINESS_START_HOUR = 8    # 8:00 AM — depart Osborne Park, first job no earlier than this
+BUSINESS_END_HOUR = 17     # 5:00 PM — all jobs must END by this time
 TRAVEL_BUFFER_MINUTES = 10  # padding added on top of Maps estimate
 
 # Job duration table (minutes) keyed by number of rims
@@ -234,6 +234,22 @@ def find_optimal_route(bookings_for_day, date_str):
         current_dt = start_dt + timedelta(minutes=get_job_duration_minutes(booking_data))
         prev_idx = addr_idx
 
+    # Warn if the optimised schedule runs past 5pm
+    day_end = target_date.replace(hour=BUSINESS_END_HOUR, minute=0, second=0, microsecond=0)
+    if result:
+        last_bid, last_bd = result[-1]
+        last_time_str = last_bd.get('preferred_time', '09:00')
+        try:
+            last_start = datetime.strptime(f"{date_str} {last_time_str}", "%Y-%m-%d %H:%M")
+            last_end = last_start + timedelta(minutes=get_job_duration_minutes(last_bd))
+            if last_end > day_end:
+                logger.warning(
+                    f"Route optimiser: last job on {date_str} ends at "
+                    f"{last_end.strftime('%H:%M')} — exceeds 5pm boundary"
+                )
+        except Exception:
+            pass
+
     route_desc = " → ".join(
         bd.get('address') or bd.get('suburb', '?') for _, bd in result
     )
@@ -269,7 +285,7 @@ def find_next_available_slot(target_date_str, new_address, day_bookings,
     target_date_str = target_date.strftime("%Y-%m-%d")
 
     day_start = target_date.replace(hour=BUSINESS_START_HOUR, minute=0, second=0, microsecond=0)
-    latest_start = target_date.replace(hour=BUSINESS_LATEST_START, minute=0, second=0, microsecond=0)
+    day_end = target_date.replace(hour=BUSINESS_END_HOUR, minute=0, second=0, microsecond=0)
 
     # Duration of the new job being scheduled
     new_job_duration = get_job_duration_minutes(new_booking_data or {})
@@ -278,57 +294,56 @@ def find_next_available_slot(target_date_str, new_address, day_bookings,
         # First job of the day — measure travel from the business address
         travel_from_base = get_travel_minutes(BUSINESS_ADDRESS, new_address)
         first_start = _ceil_15(day_start + timedelta(minutes=travel_from_base))
-        if first_start > day_start.replace(hour=BUSINESS_LATEST_START):
-            first_start = day_start  # fallback if Maps gives a crazy result
-        return target_date_str, first_start.strftime("%H:%M")
+        first_end = first_start + timedelta(minutes=new_job_duration)
+        if first_end <= day_end:
+            return target_date_str, first_start.strftime("%H:%M")
+        # Doesn't fit today — fall through to "no room today"
+    else:
+        # Build sorted list of (start, end, address) for existing jobs using their
+        # own durations so longer multi-rim jobs block the right amount of time.
+        existing = []
+        for b in day_bookings:
+            time_str = b.get('preferred_time') or '09:00'
+            try:
+                start = datetime.strptime(f"{target_date_str} {time_str}", "%Y-%m-%d %H:%M")
+            except ValueError:
+                continue
+            duration = get_job_duration_minutes(b)
+            end = start + timedelta(minutes=duration)
+            addr = b.get('address') or b.get('suburb') or ''
+            existing.append((start, end, addr))
+        existing.sort(key=lambda x: x[0])
 
-    # Build sorted list of (start, end, address) for existing jobs using their
-    # own durations so longer multi-rim jobs block the right amount of time.
-    existing = []
-    for b in day_bookings:
-        time_str = b.get('preferred_time') or '09:00'
-        try:
-            start = datetime.strptime(f"{target_date_str} {time_str}", "%Y-%m-%d %H:%M")
-        except ValueError:
-            continue
-        duration = get_job_duration_minutes(b)
-        end = start + timedelta(minutes=duration)
-        addr = b.get('address') or b.get('suburb') or ''
-        existing.append((start, end, addr))
-    existing.sort(key=lambda x: x[0])
+        # Walk through the day looking for a gap.
+        # Always start from the business address so the first job accounts for travel from base.
+        prev_end = day_start
+        prev_addr = BUSINESS_ADDRESS
 
-    if not existing:
-        return target_date_str, day_start.strftime("%H:%M")
+        for job_start, job_end, job_addr in existing:
+            # Earliest we can start the new job (travel from previous position, rounded up to :00/:15/:30/:45)
+            travel_to_new = get_travel_minutes(prev_addr, new_address)
+            earliest = _ceil_15(prev_end + timedelta(minutes=travel_to_new))
+            new_job_end = earliest + timedelta(minutes=new_job_duration)
 
-    # Walk through the day looking for a gap.
-    # Always start from the business address so the first job accounts for travel from base.
-    prev_end = day_start
-    prev_addr = BUSINESS_ADDRESS
+            # Travel from new job to the upcoming existing job
+            travel_new_to_next = get_travel_minutes(new_address, job_addr) if (new_address and job_addr) else 30
 
-    for job_start, job_end, job_addr in existing:
-        # Earliest we can start the new job (travel from previous position, rounded up to :00/:15/:30/:45)
-        travel_to_new = get_travel_minutes(prev_addr, new_address)
-        earliest = _ceil_15(prev_end + timedelta(minutes=travel_to_new))
+            # Fits before this existing job AND ends by 5pm?
+            if (new_job_end + timedelta(minutes=travel_new_to_next) <= job_start
+                    and new_job_end <= day_end):
+                return target_date_str, earliest.strftime("%H:%M")
 
-        # Travel from new job to the upcoming existing job
-        travel_new_to_next = get_travel_minutes(new_address, job_addr) if (new_address and job_addr) else 30
+            # Skip past this existing job
+            prev_end = job_end
+            prev_addr = job_addr
 
-        new_job_end = earliest + timedelta(minutes=new_job_duration)
+        # Try slotting after the last existing job
+        travel_from_last = get_travel_minutes(prev_addr, new_address)
+        candidate = _ceil_15(prev_end + timedelta(minutes=travel_from_last))
+        candidate_end = candidate + timedelta(minutes=new_job_duration)
 
-        # Fits before this existing job?
-        if new_job_end + timedelta(minutes=travel_new_to_next) <= job_start and earliest <= latest_start:
-            return target_date_str, earliest.strftime("%H:%M")
-
-        # Skip past this existing job
-        prev_end = job_end
-        prev_addr = job_addr
-
-    # Try slotting after the last existing job
-    travel_from_last = get_travel_minutes(prev_addr, new_address)
-    candidate = _ceil_15(prev_end + timedelta(minutes=travel_from_last))
-
-    if candidate <= latest_start:
-        return target_date_str, candidate.strftime("%H:%M")
+        if candidate_end <= day_end:
+            return target_date_str, candidate.strftime("%H:%M")
 
     # No room today — move to next business day
     next_day = target_date + timedelta(days=1)
