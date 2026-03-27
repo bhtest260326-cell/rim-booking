@@ -3,6 +3,14 @@ import time as _time
 import logging
 from datetime import datetime, timedelta, timezone
 from state_manager import StateManager
+
+try:
+    from zoneinfo import ZoneInfo
+    _PERTH_TZ = ZoneInfo('Australia/Perth')
+except ImportError:
+    from datetime import timezone, timedelta
+    _PERTH_TZ = timezone(timedelta(hours=8))
+
 from twilio_handler import send_sms
 from feature_flags import get_flag
 
@@ -15,8 +23,9 @@ _last_route_opt = 0.0
 _ROUTE_OPT_INTERVAL = 300  # 5 minutes
 
 def _perth_now():
-    """Return current datetime in Perth time (UTC+8)."""
-    return datetime.utcnow() + timedelta(hours=PERTH_UTC_OFFSET)
+    """Return current naive datetime in Perth local time (UTC+8, no DST)."""
+    from datetime import timezone as _tz
+    return datetime.now(_tz.utc).astimezone(_PERTH_TZ).replace(tzinfo=None)
 
 def run_scheduled_tasks():
     """Run all scheduled tasks - call once per main loop iteration."""

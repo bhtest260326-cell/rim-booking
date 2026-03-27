@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 import anthropic
@@ -27,7 +28,7 @@ def is_booking_request(body, subject=""):
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=5,
+            max_tokens=10,
             messages=[{"role": "user", "content": _INTENT_PROMPT.format(
                 subject=subject or "(no subject)",
                 body=body[:2000]  # cap to keep token cost minimal
@@ -35,7 +36,7 @@ def is_booking_request(body, subject=""):
         )
         answer = response.content[0].text.strip().upper()
         logger.info(f"Booking intent classification: {answer!r} (subject: {subject!r})")
-        return answer.startswith("YES")
+        return answer == "YES" or answer.startswith("YES\n") or answer.startswith("YES ")
     except Exception as e:
         logger.error(f"Intent classification error: {e} — defaulting to process")
         return True  # fail open: if classifier errors, treat as booking
@@ -108,31 +109,94 @@ Interpret the instruction and update the booking accordingly. Examples:
 - "address is 22 Smith St Balcatta" means set address field
 - "move to next Thursday" means calculate next Thursday from today and set preferred_date
 
-Return the COMPLETE updated booking JSON with the same field structure as the original.
+{slot_hint}Return the COMPLETE updated booking JSON with the same field structure as the original.
 Return ONLY the JSON object, no other text."""
 
 
 def extract_booking_details(message_body, subject="", customer_email=""):
     try:
         today = datetime.now().strftime("%A %d %B %Y")
-        full_message = message_body
+        full_message = message_body[:4000]  # cap to control token usage
         if subject:
-            full_message = f"Subject: {subject}\n\n{message_body}"
+            full_message = f"Subject: {subject}\n\n{full_message}"
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=1000,
+            max_tokens=2000,
             messages=[{"role": "user", "content": EXTRACTION_PROMPT.format(today=today, message=full_message)}]
         )
 
         raw = response.content[0].text.strip()
+        # Robust code-block stripping
         if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'):
-                raw = raw[4:]
+            parts = raw.split('```')
+            raw = parts[1] if len(parts) > 1 else raw
+            raw = raw.lstrip('json').strip()
+        raw = raw.strip('`').strip()
 
-        booking_data = json.loads(raw.strip())
+        booking_data = json.loads(raw)
+
+        # Validate and normalise extracted fields
+        # missing_fields must be a list
         missing_fields = booking_data.pop('missing_fields', [])
+        if not isinstance(missing_fields, list):
+            missing_fields = [str(missing_fields)] if missing_fields else []
+
+        # service_type must be one of the allowed values
+        _allowed_services = {'rim_repair', 'paint_touchup', 'multiple_rims', 'unknown'}
+        if booking_data.get('service_type') not in _allowed_services:
+            logger.warning(f"Invalid service_type '{booking_data.get('service_type')}' — resetting to unknown")
+            booking_data['service_type'] = 'unknown'
+
+        # preferred_date must be YYYY-MM-DD
+        for _df in ('preferred_date',):
+            val = booking_data.get(_df)
+            if val:
+                try:
+                    datetime.strptime(val, '%Y-%m-%d')
+                except ValueError:
+                    logger.warning(f"Invalid {_df} format '{val}' — clearing")
+                    booking_data[_df] = None
+
+        # alternative_dates must be a list of valid YYYY-MM-DD strings
+        alt = booking_data.get('alternative_dates')
+        if not isinstance(alt, list):
+            booking_data['alternative_dates'] = []
+        else:
+            clean_alt = []
+            for d in alt:
+                try:
+                    datetime.strptime(d, '%Y-%m-%d')
+                    clean_alt.append(d)
+                except (ValueError, TypeError):
+                    pass
+            booking_data['alternative_dates'] = clean_alt
+
+        # preferred_time must be HH:MM
+        pt = booking_data.get('preferred_time')
+        if pt and not re.match(r'^\d{2}:\d{2}$', pt):
+            logger.warning(f"Invalid preferred_time '{pt}' — clearing")
+            booking_data['preferred_time'] = None
+
+        # customer_phone must contain digits
+        phone = booking_data.get('customer_phone')
+        if phone and not re.search(r'\d', str(phone)):
+            logger.warning(f"customer_phone has no digits '{phone}' — clearing")
+            booking_data['customer_phone'] = None
+
+        # num_rims must be an integer
+        nr = booking_data.get('num_rims')
+        if nr is not None:
+            try:
+                booking_data['num_rims'] = int(nr)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid num_rims '{nr}' — clearing")
+                booking_data['num_rims'] = None
+
+        # address/suburb — if both null, ensure missing_fields includes address
+        if not booking_data.get('address') and not booking_data.get('suburb'):
+            if not any('address' in f.lower() or 'suburb' in f.lower() or 'location' in f.lower() for f in missing_fields):
+                missing_fields.append('your service address')
 
         if customer_email:
             booking_data['customer_email'] = customer_email
@@ -142,14 +206,17 @@ def extract_booking_details(message_body, subject="", customer_email=""):
         return booking_data, missing_fields, needs_clarification
 
     except json.JSONDecodeError as e:
-        logger.error(f"JSON parse error: {e}")
+        logger.error(f"JSON parse error in extraction: {e}")
         return {}, ["the details of your booking request — please resend with your name, address, preferred date, and service type"], True
+    except anthropic.APIError as e:
+        logger.error(f"Anthropic API error during extraction: {e}", exc_info=True)
+        return {}, ["there was a temporary system issue — please try again in a moment"], True
     except Exception as e:
         logger.error(f"AI extraction error: {e}", exc_info=True)
         return {}, ["the details of your booking request — please resend with your name, address, preferred date, and service type"], True
 
 
-def parse_owner_correction(original_booking, correction_text):
+def parse_owner_correction(original_booking, correction_text, slot_hint=None):
     try:
         today = datetime.now().strftime("%A %d %B %Y")
         response = client.messages.create(
@@ -158,7 +225,8 @@ def parse_owner_correction(original_booking, correction_text):
             messages=[{"role": "user", "content": CORRECTION_PROMPT.format(
                 today=today,
                 booking_json=json.dumps(original_booking, indent=2),
-                correction_text=correction_text
+                correction_text=correction_text,
+                slot_hint=f"A suggested available slot is {slot_hint}. " if slot_hint else ""
             )}]
         )
 

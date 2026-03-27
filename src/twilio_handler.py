@@ -109,7 +109,17 @@ def process_single_sms_webhook(from_number, body_text, message_sid):
         body_clean = body
         latest = state.get_latest_pending_booking()
         if latest:
-            pending_id = latest['id']
+            # Only use fallback if booking was created within the last 2 hours
+            created_at = latest.get('created_at', '')
+            try:
+                from datetime import timezone
+                age = datetime.now(timezone.utc) - datetime.fromisoformat(created_at)
+                if age.total_seconds() < 7200:
+                    pending_id = latest['id']
+                else:
+                    logger.warning(f"Latest pending booking {latest['id']} is too old for ID-less SMS fallback ({int(age.total_seconds()//3600)}h old)")
+            except Exception:
+                pending_id = latest['id']  # fallback if date parse fails
     if not pending_id:
         logger.warning("Owner webhook SMS received but no pending booking found")
         state.mark_sms_processed(message_sid)
@@ -149,13 +159,23 @@ def poll_sms_replies():
                 try:
                     pending_id = body.split('[ID:')[1].split(']')[0].strip()
                     body_clean = body.split('[ID:')[0].strip()
-                except:
+                except (ValueError, IndexError):
                     body_clean = body
             else:
                 body_clean = body
                 latest = state.get_latest_pending_booking()
                 if latest:
-                    pending_id = latest['id']
+                    # Only use fallback if booking was created within the last 2 hours
+                    created_at = latest.get('created_at', '')
+                    try:
+                        from datetime import timezone
+                        age = datetime.now(timezone.utc) - datetime.fromisoformat(created_at)
+                        if age.total_seconds() < 7200:
+                            pending_id = latest['id']
+                        else:
+                            logger.warning(f"Latest pending booking {latest['id']} is too old for ID-less SMS fallback ({int(age.total_seconds()//3600)}h old)")
+                    except Exception:
+                        pending_id = latest['id']  # fallback if date parse fails
             if not pending_id:
                 logger.warning("Owner SMS received but no pending booking found")
                 state.mark_sms_processed(msg.sid)
@@ -179,6 +199,10 @@ def poll_sms_replies():
 def handle_owner_confirm(pending_id, pending):
     state = StateManager()
     booking_data = pending['booking_data']
+    # Idempotency guard — if already confirmed, skip silently
+    if pending.get('status') == 'confirmed':
+        logger.info(f"Booking {pending_id} already confirmed — ignoring duplicate YES")
+        return
     # If a tentative event was already created via fallback, upgrade it; otherwise create fresh
     existing_event_id = pending.get('calendar_event_id')
     if existing_event_id:

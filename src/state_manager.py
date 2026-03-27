@@ -46,6 +46,7 @@ def _ensure_schema(conn):
             thread_id       TEXT,
             gmail_msg_id    TEXT,
             missing_fields  TEXT NOT NULL DEFAULT '[]',
+            attempt_count   INTEGER NOT NULL DEFAULT 0,
             created_at      TEXT
         );
 
@@ -62,10 +63,12 @@ def _ensure_schema(conn):
             value TEXT
         );
 
-        CREATE INDEX IF NOT EXISTS idx_bookings_thread    ON bookings(thread_id);
-        CREATE INDEX IF NOT EXISTS idx_bookings_date      ON bookings(preferred_date);
-        CREATE INDEX IF NOT EXISTS idx_bookings_status    ON bookings(status);
-        CREATE INDEX IF NOT EXISTS idx_clarifications_thread ON clarifications(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_bookings_thread        ON bookings(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_bookings_date          ON bookings(preferred_date);
+        CREATE INDEX IF NOT EXISTS idx_bookings_status        ON bookings(status);
+        CREATE INDEX IF NOT EXISTS idx_bookings_status_date   ON bookings(status, preferred_date);
+        CREATE INDEX IF NOT EXISTS idx_bookings_status_event  ON bookings(status, calendar_event_id);
+        CREATE INDEX IF NOT EXISTS idx_clarifications_thread  ON clarifications(thread_id);
     """)
     conn.commit()
 
@@ -227,17 +230,23 @@ class StateManager:
                 return False
             params = [datetime.now(timezone.utc).isoformat(), pending_id]
             if booking_data:
-                conn.execute("""
+                result = conn.execute("""
                     UPDATE bookings
                     SET status='confirmed', confirmed_at=?, booking_data=?,
                         preferred_date=?
                     WHERE id=?
                 """, (params[0], json.dumps(booking_data),
                       booking_data.get('preferred_date'), pending_id))
+                if result.rowcount == 0:
+                    logger.warning(f"confirm_booking: no rows updated for {pending_id}")
+                    return False
             else:
-                conn.execute("""
+                result = conn.execute("""
                     UPDATE bookings SET status='confirmed', confirmed_at=? WHERE id=?
                 """, tuple(params))
+                if result.rowcount == 0:
+                    logger.warning(f"confirm_booking: no rows updated for {pending_id}")
+                    return False
         logger.info(f"Confirmed booking {pending_id}")
         return True
 
@@ -414,6 +423,17 @@ class StateManager:
                 WHERE id=?
             """, (json.dumps(booking_data), json.dumps(missing_fields),
                   clarification_id))
+
+    def increment_clarification_attempts(self, clarification_id):
+        """Increment attempt counter and return the new count."""
+        with self._conn() as conn:
+            conn.execute("""
+                UPDATE clarifications SET attempt_count = attempt_count + 1 WHERE id=?
+            """, (clarification_id,))
+            row = conn.execute(
+                "SELECT attempt_count FROM clarifications WHERE id=?", (clarification_id,)
+            ).fetchone()
+        return row['attempt_count'] if row else 0
 
     def remove_pending_clarification(self, clarification_id):
         with self._conn() as conn:

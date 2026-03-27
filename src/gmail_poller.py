@@ -371,7 +371,33 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
         still_missing.append('the type of service required (rim repair or paint touch-up)')
 
     if still_missing:
-        # Still incomplete — ask again, keeping reply inside the same Gmail thread
+        # Check how many times we've already asked — bail out after 3 attempts
+        attempts = state.increment_clarification_attempts(existing_pending['id'])
+        if attempts >= 3:
+            logger.warning(f"Clarification loop for thread {thread_id} exceeded 3 attempts — flagging for manual review")
+            owner_email = os.environ.get('OWNER_EMAIL', '')
+            if owner_email:
+                try:
+                    from google_auth import get_gmail_service as _gs
+                    from email.mime.text import MIMEText
+                    import base64
+                    _svc = _gs()
+                    _body = (
+                        f"A customer ({customer_email}) has not provided complete booking details after "
+                        f"{attempts} clarification emails.\n\nStill missing: {', '.join(still_missing)}\n\n"
+                        f"Thread: {thread_id}\n\nPlease follow up manually."
+                    )
+                    _msg = MIMEText(_body)
+                    _msg['to'] = owner_email
+                    _msg['subject'] = f"[Manual Review] Incomplete booking from {customer_email}"
+                    _raw = base64.urlsafe_b64encode(_msg.as_bytes()).decode()
+                    _svc.users().messages().send(userId='me', body={'raw': _raw}).execute()
+                    logger.info(f"Manual review email sent to owner for thread {thread_id}")
+                except Exception as _e:
+                    logger.error(f"Could not send manual review email: {_e}")
+            state.mark_email_processed(msg_id)
+            return
+        # Still within attempt limit — send another clarification
         if get_flag('flag_auto_email_replies'):
             send_clarification_email(service, customer_email, subject, still_missing,
                                       thread_id=thread_id, message_id_header=message_id_header)

@@ -9,9 +9,13 @@ logger = logging.getLogger(__name__)
 
 
 def _ceil_15(dt):
-    """Round a datetime UP to the next 15-minute boundary (e.g. 11:44 → 11:45, 11:46 → 12:00)."""
+    """Round a datetime UP to the next 15-minute boundary (e.g. 11:44 → 11:45, 11:46 → 12:00).
+    If already on a 15-minute boundary with no seconds, returns unchanged."""
     remainder = dt.minute % 15
-    if remainder == 0 and dt.second == 0:
+    if remainder == 0 and dt.second == 0 and dt.microsecond == 0:
+        return dt
+    if remainder == 0:
+        # On boundary but has sub-minute time — just clear seconds, don't advance
         return dt.replace(second=0, microsecond=0)
     add_minutes = 15 - remainder
     return (dt + timedelta(minutes=add_minutes)).replace(second=0, microsecond=0)
