@@ -1,9 +1,19 @@
 import os
 import logging
+import math
 import requests
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+
+def _ceil_15(dt):
+    """Round a datetime UP to the next 15-minute boundary (e.g. 11:44 → 11:45, 11:46 → 12:00)."""
+    remainder = dt.minute % 15
+    if remainder == 0 and dt.second == 0:
+        return dt.replace(second=0, microsecond=0)
+    add_minutes = 15 - remainder
+    return (dt + timedelta(minutes=add_minutes)).replace(second=0, microsecond=0)
 
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 BUSINESS_ADDRESS = '76 Albert St, Osborne Park WA 6017'
@@ -120,7 +130,7 @@ def find_next_available_slot(target_date_str, new_address, day_bookings,
     if not day_bookings:
         # First job of the day — measure travel from the business address
         travel_from_base = get_travel_minutes(BUSINESS_ADDRESS, new_address)
-        first_start = day_start + timedelta(minutes=travel_from_base)
+        first_start = _ceil_15(day_start + timedelta(minutes=travel_from_base))
         if first_start > day_start.replace(hour=BUSINESS_LATEST_START):
             first_start = day_start  # fallback if Maps gives a crazy result
         return target_date_str, first_start.strftime("%H:%M")
@@ -149,9 +159,9 @@ def find_next_available_slot(target_date_str, new_address, day_bookings,
     prev_addr = BUSINESS_ADDRESS
 
     for job_start, job_end, job_addr in existing:
-        # Earliest we can start the new job (travel from previous position)
+        # Earliest we can start the new job (travel from previous position, rounded up to :00/:15/:30/:45)
         travel_to_new = get_travel_minutes(prev_addr, new_address)
-        earliest = prev_end + timedelta(minutes=travel_to_new)
+        earliest = _ceil_15(prev_end + timedelta(minutes=travel_to_new))
 
         # Travel from new job to the upcoming existing job
         travel_new_to_next = get_travel_minutes(new_address, job_addr) if (new_address and job_addr) else 30
@@ -168,7 +178,7 @@ def find_next_available_slot(target_date_str, new_address, day_bookings,
 
     # Try slotting after the last existing job
     travel_from_last = get_travel_minutes(prev_addr, new_address)
-    candidate = prev_end + timedelta(minutes=travel_from_last)
+    candidate = _ceil_15(prev_end + timedelta(minutes=travel_from_last))
 
     if candidate <= latest_start:
         return target_date_str, candidate.strftime("%H:%M")
