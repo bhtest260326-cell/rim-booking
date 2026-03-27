@@ -113,9 +113,19 @@ def label_awaiting_confirmation(service, msg_id):
                 remove_labels=['Rim Repairs/Pending Reply', 'Rim Repairs/Confirmed', 'Rim Repairs/Declined', 'Rim Repairs/Processed'])
 
 def label_confirmed(service, msg_id):
-    """Green — owner confirmed, calendar event created."""
+    """Green — owner confirmed, calendar event created. Archived out of inbox."""
     apply_label(service, msg_id, 'Rim Repairs/Confirmed',
                 remove_labels=['Rim Repairs/Pending Reply', 'Rim Repairs/Awaiting Confirmation', 'Rim Repairs/Declined', 'Rim Repairs/Processed'])
+    # Archive — remove from inbox so it sits in the Confirmed label folder
+    try:
+        service.users().messages().modify(
+            userId='me',
+            id=msg_id,
+            body={'removeLabelIds': ['INBOX']}
+        ).execute()
+        logger.info(f"Archived message {msg_id} from inbox (filed under Confirmed)")
+    except Exception as e:
+        logger.error(f"Archive error for message {msg_id}: {e}")
 
 def label_declined(service, msg_id):
     """Purple — owner declined."""
