@@ -12,6 +12,8 @@ Protection: set ADMIN_TOKEN env var in Railway. Access the page at
 
 import os
 import json
+import hmac
+import html as _html
 import logging
 from datetime import datetime, timedelta
 from flask import Blueprint, request, redirect, jsonify
@@ -33,7 +35,7 @@ def _authorised() -> bool:
     if not ADMIN_TOKEN:
         return True
     tok = request.args.get('token') or request.form.get('token', '')
-    return tok == ADMIN_TOKEN
+    return hmac.compare_digest(tok, ADMIN_TOKEN)
 
 
 def _qs() -> str:
@@ -67,13 +69,13 @@ def _render_dashboard(flags: dict, pending: list = None) -> str:
     if pending:
         for b in pending:
             bid = b.get('id', '')
-            name = b.get('name', '—')
-            date = b.get('date', '?')
-            time_val = b.get('time', '?')
-            address = b.get('address', '?')
-            service = b.get('service', '?')
-            rims = b.get('rims', '?')
-            phone = b.get('phone', '')
+            name = _html.escape(str(b.get('name', '—')))
+            date = _html.escape(str(b.get('date', '?')))
+            time_val = _html.escape(str(b.get('time', '?')))
+            address = _html.escape(str(b.get('address', '?')))
+            service = _html.escape(str(b.get('service', '?')))
+            rims = _html.escape(str(b.get('rims', '?')))
+            phone = _html.escape(str(b.get('phone', '')))
             phone_html = f'<div class="desc">&#128222; {phone}</div>' if phone else ''
             pending_cards += f"""
       <div class="pending-card">

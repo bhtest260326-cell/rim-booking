@@ -714,8 +714,9 @@ def send_maintenance_reminders():
                         f"Keep it looking its best — reply to book your next service. - Rim Repair Team"
                     )
                 try:
-                    send_sms(phone, msg)
+                    # Mark BEFORE sending so a crash between send and mark never causes a duplicate SMS
                     state.mark_maintenance_reminder_sent(row['id'], interval)
+                    send_sms(phone, msg)
                     logger.info(f"Maintenance reminder ({interval}) sent to {phone} for booking {row['booking_id']}")
                 except Exception as e:
                     logger.error(f"Maintenance reminder SMS failed: {e}")

@@ -3,9 +3,14 @@ import re
 import json
 import logging
 import anthropic
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+
+def _perth_today_str() -> str:
+    """Return today's date string in Perth time (UTC+8) as 'Weekday DD Month YYYY'."""
+    return (datetime.utcnow() + timedelta(hours=8)).strftime("%A %d %B %Y")
 
 
 def _is_valid_au_phone(phone: str) -> bool:
@@ -505,7 +510,7 @@ Return ONLY the JSON object, no other text."""
 
 def extract_booking_details(message_body, subject="", customer_email=""):
     try:
-        today = datetime.now().strftime("%A %d %B %Y")
+        today = _perth_today_str()
 
         # Sanitise all customer-supplied text before it reaches the model
         clean_body, body_suspicious = _check_for_injection(
@@ -654,7 +659,7 @@ def extract_booking_details(message_body, subject="", customer_email=""):
 
 def parse_owner_correction(original_booking, correction_text, slot_hint=None):
     try:
-        today = datetime.now().strftime("%A %d %B %Y")
+        today = _perth_today_str()
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1000,

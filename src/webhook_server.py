@@ -93,16 +93,21 @@ def create_app():
     def twilio_sms_webhook():
         # Validate Twilio signature to reject spoofed requests
         try:
+            auth_token = os.environ['TWILIO_AUTH_TOKEN']
             from twilio.request_validator import RequestValidator
-            validator = RequestValidator(os.environ['TWILIO_AUTH_TOKEN'])
+            validator = RequestValidator(auth_token)
             signature = request.headers.get('X-Twilio-Signature', '')
             # Use the public URL if behind a proxy (Railway sets X-Forwarded-Proto)
             url = request.url.replace('http://', 'https://', 1)
             if not validator.validate(url, request.form.to_dict(), signature):
                 logger.warning("Twilio webhook: invalid signature")
                 return 'Unauthorized', 403
+        except KeyError:
+            logger.error("TWILIO_AUTH_TOKEN not set — cannot validate Twilio signature, rejecting request")
+            return 'Service Unavailable', 503
         except Exception as e:
-            logger.warning(f"Twilio signature validation skipped: {e}")
+            logger.error(f"Twilio signature validation error: {e}")
+            return 'Internal Server Error', 500
 
         from_number = request.form.get('From', '')
         body_text = request.form.get('Body', '')

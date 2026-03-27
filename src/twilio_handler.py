@@ -295,14 +295,31 @@ def handle_owner_confirm(pending_id, pending):
     if pending.get('status') == 'confirmed':
         logger.info(f"Booking {pending_id} already confirmed — ignoring duplicate YES")
         return
-    # If a tentative event was already created via fallback, upgrade it; otherwise create fresh
+    # Confirm in DB first — atomic BEGIN IMMEDIATE prevents race conditions.
+    # Only proceed to calendar/notifications if DB actually recorded the change.
+    confirmed = state.confirm_booking(pending_id, booking_data)
+    if not confirmed:
+        logger.error(f"confirm_booking returned False for {pending_id} — aborting confirmation (already processed or DB error)")
+        try:
+            send_sms(os.environ['OWNER_MOBILE'],
+                f"Booking {pending_id} could not be confirmed (already processed or DB error). Check /admin.")
+        except Exception:
+            pass
+        return
+    # DB confirm succeeded — now handle calendar (failure is non-fatal)
     existing_event_id = pending.get('calendar_event_id')
+    event_id = None
     if existing_event_id:
-        confirm_tentative_event(existing_event_id, booking_data)
-        event_id = existing_event_id
+        try:
+            confirm_tentative_event(existing_event_id, booking_data)
+            event_id = existing_event_id
+        except Exception as e:
+            logger.error(f"Could not upgrade tentative calendar event {existing_event_id}: {e}")
     else:
-        event_id = create_calendar_event(booking_data)
-    state.confirm_booking(pending_id, booking_data)
+        try:
+            event_id = create_calendar_event(booking_data)
+        except Exception as e:
+            logger.error(f"Could not create calendar event for {pending_id}: {e}")
     if event_id:
         state.update_booking_calendar_event(pending_id, event_id)
     customer_phone = booking_data.get('customer_phone')

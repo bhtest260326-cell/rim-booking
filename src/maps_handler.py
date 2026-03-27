@@ -159,7 +159,10 @@ def get_travel_minutes(origin: str, destination: str, departure_dt=None) -> int:
         if departure_dt is not None:
             try:
                 import calendar as _cal
-                params['departure_time'] = str(int(_cal.timegm(departure_dt.timetuple())))
+                # departure_dt is Perth local time (UTC+8, naive).
+                # timegm() interprets its input as UTC, so subtract 8h first.
+                utc_dt = departure_dt - timedelta(hours=8)
+                params['departure_time'] = str(int(_cal.timegm(utc_dt.timetuple())))
                 params['traffic_model'] = 'best_guess'
             except Exception:
                 pass  # fall back to no traffic data
@@ -209,7 +212,9 @@ def get_distance_matrix(addresses):
     if not GOOGLE_MAPS_API_KEY or n < 2:
         return fallback
 
-    key = (tuple(sorted(addresses)),)
+    # Cache key must preserve address order — the returned matrix is position-indexed.
+    # sorted() was wrong: ['A','B'] and ['B','A'] would share a cache entry but need different matrices.
+    key = tuple(addresses)
     if key in _matrix_cache and time.time() - _matrix_cache_ts.get(key, 0) < _MATRIX_CACHE_TTL:
         logger.info(f"Distance matrix cache hit ({n} locations)")
         return _matrix_cache[key]
