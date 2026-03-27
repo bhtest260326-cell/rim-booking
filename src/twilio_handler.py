@@ -63,53 +63,21 @@ def send_owner_confirmation_request(pending_id, booking_data):
 def _send_calendar_invite_fallback(pending_id, booking_data, reason="SMS unavailable"):
     """
     Fallback when owner SMS cannot be sent.
-    Creates a tentative [PENDING] calendar event and sends an email to OWNER_EMAIL.
-    The owner can accept/decline/amend from their calendar, or reply YES/NO via SMS later.
+    Creates a Google Calendar event with OWNER_EMAIL as attendee — Google sends
+    a native accept/decline/amend invite email. RSVP is detected by the scheduler.
     """
     state = StateManager()
+    owner_email = os.environ.get('OWNER_EMAIL', '')
+    if not owner_email:
+        logger.warning(f"OWNER_EMAIL not set — cannot send calendar invite fallback for {pending_id}")
+        return
 
-    # Create tentative calendar event so data entry is automated
     event_id = create_tentative_calendar_invite(booking_data, pending_id)
     if event_id:
         state.update_booking_calendar_event(pending_id, event_id)
-        logger.info(f"Tentative calendar event {event_id} created for pending booking {pending_id}")
+        logger.info(f"Calendar invite sent to {owner_email} for booking {pending_id} (event {event_id})")
     else:
-        logger.error(f"Could not create tentative calendar event for booking {pending_id}")
-
-    # Send email notification to owner
-    owner_email = os.environ.get('OWNER_EMAIL', '')
-    if not owner_email:
-        logger.warning(f"OWNER_EMAIL not set — skipping fallback email for booking {pending_id}")
-        return
-
-    try:
-        service = get_gmail_service()
-        msg_body = format_booking_for_owner(booking_data)
-        name = booking_data.get('customer_name', 'Customer')
-        date = booking_data.get('preferred_date', 'TBC')
-        address = booking_data.get('address') or booking_data.get('suburb', 'TBC')
-
-        body = f"""New booking request — SMS notification failed ({reason}).
-
-A [PENDING] calendar event has been created for your review. You can:
-  • Accept: reply YES {pending_id} via SMS to confirm
-  • Decline: reply NO {pending_id} via SMS, or delete the calendar event
-  • Amend: edit the calendar event directly or reply with corrections via SMS
-
----
-
-{msg_body}
-
-Booking ID: {pending_id}
-"""
-        message = MIMEText(body)
-        message['to'] = owner_email
-        message['subject'] = f"[ACTION REQUIRED] New Booking — {name}, {date}, {address}"
-        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-        service.users().messages().send(userId='me', body={'raw': raw}).execute()
-        logger.info(f"Fallback email sent to owner ({owner_email}) for booking {pending_id}")
-    except Exception as e:
-        logger.error(f"Fallback email error for booking {pending_id}: {e}")
+        logger.error(f"Could not create calendar invite for booking {pending_id}")
 
 def process_single_sms_webhook(from_number, body_text, message_sid):
     state = StateManager()

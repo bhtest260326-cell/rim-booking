@@ -260,6 +260,24 @@ Payment: EFTPOS on the day
         return None
 
 
+def get_event_attendee_status(event_id, attendee_email):
+    """
+    Return the RSVP status for a specific attendee on a calendar event.
+    Possible values: 'accepted', 'declined', 'tentative', 'needsAction', or None if not found.
+    """
+    try:
+        service = get_calendar_service()
+        calendar_id = os.environ['GOOGLE_CALENDAR_ID']
+        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        for attendee in event.get('attendees', []):
+            if attendee.get('email', '').lower() == attendee_email.lower():
+                return attendee.get('responseStatus', 'needsAction')
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching attendee status for event {event_id}: {e}")
+        return None
+
+
 def delete_calendar_event(event_id):
     """Delete a calendar event by ID. Used to remove tentative events on decline."""
     try:

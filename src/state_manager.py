@@ -263,6 +263,15 @@ class StateManager:
                 (event_id, pending_id)
             )
 
+    def get_pending_bookings_with_calendar_events(self):
+        """Return all awaiting_owner bookings that have a calendar_event_id set (invite fallback path)."""
+        with self._conn() as conn:
+            rows = conn.execute("""
+                SELECT * FROM bookings
+                WHERE status='awaiting_owner' AND calendar_event_id IS NOT NULL
+            """).fetchall()
+        return [self._booking_row_to_dict(row) for row in rows]
+
     # ------------------------------------------------------------------
     # Reminders
     # ------------------------------------------------------------------

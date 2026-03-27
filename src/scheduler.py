@@ -17,11 +17,45 @@ def _perth_now():
 def run_scheduled_tasks():
     """Run all scheduled tasks - call once per main loop iteration."""
     try:
+        check_calendar_rsvps()
         send_morning_job_notifications()
         send_day_prior_reminders()
         send_post_job_review_requests()
     except Exception as e:
         logger.error(f"Scheduler error: {e}", exc_info=True)
+
+
+def check_calendar_rsvps():
+    """
+    Poll pending bookings that were sent as calendar invites (fallback path).
+    When the owner accepts or declines via Google Calendar, trigger the full
+    confirm/decline workflow including customer notification.
+    """
+    owner_email = os.environ.get('OWNER_EMAIL', '')
+    if not owner_email:
+        return
+
+    state = StateManager()
+    pending = state.get_pending_bookings_with_calendar_events()
+    if not pending:
+        return
+
+    from calendar_handler import get_event_attendee_status
+    from twilio_handler import handle_owner_confirm, handle_owner_decline
+
+    for booking in pending:
+        booking_id = booking['id']
+        event_id = booking.get('calendar_event_id')
+        if not event_id:
+            continue
+
+        status = get_event_attendee_status(event_id, owner_email)
+        if status == 'accepted':
+            logger.info(f"Calendar RSVP accepted for booking {booking_id} — confirming")
+            handle_owner_confirm(booking_id, booking)
+        elif status == 'declined':
+            logger.info(f"Calendar RSVP declined for booking {booking_id} — declining")
+            handle_owner_decline(booking_id, booking)
 
 def send_morning_job_notifications():
     """At 8am Perth time, email all customers booked for today."""
