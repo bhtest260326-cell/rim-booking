@@ -8,6 +8,9 @@ Colour scheme matches the Perth Swedish & European Auto Centre banner:
 """
 
 import os
+import hmac
+import hashlib
+import time as _ts_time
 import base64
 import logging
 from html import escape as esc
@@ -175,3 +178,32 @@ def send_customer_email(
         send_body['threadId'] = thread_id
 
     service.users().messages().send(userId='me', body=send_body).execute()
+
+
+def generate_reschedule_token(booking_id: str) -> str:
+    """Generate a short-lived signed token for self-service reschedule."""
+    secret = os.environ.get('RESCHEDULE_SECRET', 'default-dev-secret-change-me')
+    expires = int(_ts_time.time()) + 7 * 86400  # 7 days
+    payload = f"{booking_id}:{expires}"
+    sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:16]
+    return f"{payload}:{sig}"
+
+
+def verify_reschedule_token(token: str) -> str | None:
+    """Verify a reschedule token. Returns booking_id if valid, None if expired/invalid."""
+    try:
+        secret = os.environ.get('RESCHEDULE_SECRET', 'default-dev-secret-change-me')
+        parts = token.split(':')
+        if len(parts) != 3:
+            return None
+        booking_id, expires_str, sig = parts
+        expires = int(expires_str)
+        if _ts_time.time() > expires:
+            return None  # expired
+        payload = f"{booking_id}:{expires_str}"
+        expected_sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:16]
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        return booking_id
+    except Exception:
+        return None

@@ -113,6 +113,20 @@ def _ensure_schema(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_svc_history_6m  ON customer_service_history(next_reminder_6m, reminder_6m_sent);
         CREATE INDEX IF NOT EXISTS idx_svc_history_12m ON customer_service_history(next_reminder_12m, reminder_12m_sent);
+
+        CREATE TABLE IF NOT EXISTS waitlist (
+            id          TEXT PRIMARY KEY,
+            customer_email TEXT NOT NULL,
+            customer_name  TEXT,
+            customer_phone TEXT,
+            requested_date TEXT NOT NULL,
+            booking_data   TEXT NOT NULL,
+            gmail_msg_id   TEXT,
+            thread_id      TEXT,
+            created_at     TEXT NOT NULL,
+            notified       INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_waitlist_date ON waitlist(requested_date, notified);
     """)
     conn.commit()
 
@@ -792,6 +806,41 @@ class StateManager:
             self.log_booking_event(b['id'], 'owner_day_cancelled', actor=cancelled_by,
                                    details={'reason': reason, 'date': date_str})
         return bookings
+
+    # ------------------------------------------------------------------
+    # Waitlist
+    # ------------------------------------------------------------------
+
+    def add_to_waitlist(self, customer_email, customer_name, customer_phone,
+                        requested_date, booking_data_dict, gmail_msg_id=None, thread_id=None):
+        """Add a customer to the waitlist for a specific date."""
+        import uuid, json as _j
+        wid = str(uuid.uuid4())[:8]
+        now = datetime.utcnow().isoformat()
+        with self._conn() as conn:
+            conn.execute("""
+                INSERT OR IGNORE INTO waitlist
+                (id, customer_email, customer_name, customer_phone,
+                 requested_date, booking_data, gmail_msg_id, thread_id, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
+            """, (wid, customer_email, customer_name, customer_phone,
+                  requested_date, _j.dumps(booking_data_dict),
+                  gmail_msg_id, thread_id, now))
+        return wid
+
+    def get_waitlist_for_date(self, date_str):
+        """Return all unnotified waitlist entries for a date."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM waitlist WHERE requested_date=? AND notified=0 ORDER BY created_at",
+                (date_str,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_waitlist_notified(self, waitlist_id):
+        """Mark a waitlist entry as notified."""
+        with self._conn() as conn:
+            conn.execute("UPDATE waitlist SET notified=1 WHERE id=?", (waitlist_id,))
 
     # ------------------------------------------------------------------
     # Internal conversion

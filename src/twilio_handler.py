@@ -353,7 +353,7 @@ def handle_owner_confirm(pending_id, pending):
     if customer_phone and get_flag('flag_auto_sms_customer'):
         send_sms(customer_phone, confirmation_msg)
     if customer_email and get_flag('flag_auto_email_customer'):
-        send_confirmation_email(customer_email, booking_data)
+        send_confirmation_email(customer_email, booking_data, booking_id=pending_id)
     gmail_msg_id = pending.get('gmail_msg_id')
     if gmail_msg_id:
         try:
@@ -574,7 +574,7 @@ def build_customer_confirmation_sms(booking_data):
         f"Payment is by EFTPOS on the day. Any questions, just reply. - Rim Repair"
     )
 
-def send_confirmation_email(to_email, booking_data):
+def send_confirmation_email(to_email, booking_data, booking_id=None):
     try:
         from email_utils import send_customer_email, _h2, _p, _info_table, _ul, RED, DARK, esc
         service = get_gmail_service()
@@ -600,6 +600,23 @@ def send_confirmation_email(to_email, booking_data):
             ('Service', service_type),
         ]
 
+        # Generate reschedule link
+        try:
+            from email_utils import generate_reschedule_token
+            base_url = os.environ.get('APP_BASE_URL', '').rstrip('/')
+            if base_url and booking_id:
+                reschedule_token = generate_reschedule_token(booking_id)
+                reschedule_url = f"{base_url}/reschedule/{reschedule_token}"
+                reschedule_para = _p(
+                    f'Need to reschedule? <a href="{reschedule_url}" style="color:#C41230;">Click here</a> '
+                    f'to choose a new date — no need to email us.',
+                    f'color:{DARK};'
+                )
+            else:
+                reschedule_para = ''
+        except Exception:
+            reschedule_para = ''
+
         content = (
             _p(f'Hi {first},')
             + _p('Thank you for choosing Perth Swedish &amp; European Auto Centre. '
@@ -612,6 +629,7 @@ def send_confirmation_email(to_email, booking_data):
                  'simply reply to this email.')
             + _p(f'We look forward to seeing you on <strong>{date}</strong>.',
                  f'color:{DARK};')
+            + reschedule_para
             + f'<p style="margin:24px 0 0;color:{DARK};font-size:15px;">'
               f'Kind regards,<br><strong style="color:#C41230;">Rim Repair Team</strong></p>'
         )

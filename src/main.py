@@ -1,16 +1,42 @@
 import os
+import sys
 import time
 import threading
 import logging
+from pythonjsonlogger import jsonlogger
 from webhook_server import create_app
 from gmail_poller import poll_gmail, register_gmail_watch
 from twilio_handler import poll_sms_replies
 from scheduler import run_scheduled_tasks
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
-)
+
+def _configure_logging():
+    """Configure structured JSON logging for production (Railway) deployment."""
+    log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+
+    # JSON formatter — every log line is a parseable JSON object
+    formatter = jsonlogger.JsonFormatter(
+        fmt='%(asctime)s %(name)s %(levelname)s %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S',
+        rename_fields={'asctime': 'ts', 'name': 'logger', 'levelname': 'level'}
+    )
+
+    # Apply to root logger
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(getattr(logging, log_level, logging.INFO))
+
+    # Quieten noisy third-party loggers
+    logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
+    logging.getLogger('googleapiclient.discovery').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+
+
 logger = logging.getLogger(__name__)
 
 PUBSUB_ENABLED = bool(os.environ.get('PUBSUB_TOPIC_NAME', ''))
@@ -56,6 +82,7 @@ def _background_loop():
 
 
 def main():
+    _configure_logging()
     logger.info("Rim Repair Booking System starting...")
 
     if PUBSUB_ENABLED:

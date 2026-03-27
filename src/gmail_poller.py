@@ -783,6 +783,21 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
                 service, customer_email, subject, preferred_date,
                 first_name, booking_data, thread_id, state
             )
+            # Auto-enroll in waitlist for the requested but unavailable date
+            if preferred_date:
+                try:
+                    wid = state.add_to_waitlist(
+                        customer_email=customer_email,
+                        customer_name=booking_data.get('customer_name'),
+                        customer_phone=booking_data.get('customer_phone'),
+                        requested_date=preferred_date,
+                        booking_data_dict=booking_data,
+                        gmail_msg_id=msg_id,
+                        thread_id=thread_id
+                    )
+                    logger.info(f"Customer {customer_email} added to waitlist for {preferred_date} (waitlist ID: {wid})")
+                except Exception as e:
+                    logger.warning(f"Waitlist enroll failed (non-fatal): {e}")
             # Keep as a pending clarification so the next reply is handled correctly
             state.create_pending_clarification(
                 booking_data=booking_data,

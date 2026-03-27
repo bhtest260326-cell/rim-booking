@@ -37,6 +37,7 @@ _TASK_INTERVALS = {
     'backup_database_to_email':     86400, # daily (also gated by date key)
     'send_morning_email':           300,   # every 5 min
     'run_db_cleanup':               604800, # weekly (7 days)
+    'check_waitlist_opportunities': 3600,  # every hour
 }
 
 _task_last_run: dict = {}
@@ -140,6 +141,13 @@ def run_scheduled_tasks():
         except Exception as e:
             logger.error(f"run_db_cleanup error: {e}", exc_info=True)
         _mark_ran('run_db_cleanup')
+
+    if _should_run('check_waitlist_opportunities'):
+        try:
+            check_waitlist_opportunities()
+        except Exception as e:
+            logger.error(f"check_waitlist_opportunities error: {e}", exc_info=True)
+        _mark_ran('check_waitlist_opportunities')
 
 
 def _alert_owner_overrun(date_str, overrun_jobs):
@@ -872,6 +880,73 @@ def backup_database_to_email():
         logger.info(f"Database backup emailed for {today}")
     except Exception as e:
         logger.error(f"Database backup failed: {e}", exc_info=True)
+
+
+def check_waitlist_opportunities():
+    """Check if any cancelled bookings create openings for waitlisted customers.
+
+    Runs hourly. For each date that has waitlisted customers, checks if the date
+    now has available capacity. If so, sends a notification email to waitlisted customers.
+    """
+    try:
+        from state_manager import StateManager, _get_conn
+        from feature_flags import get_flag
+        import json as _json
+
+        if not get_flag('flag_auto_email_replies'):
+            return
+
+        state = StateManager()
+
+        # Find dates with unnotified waitlist entries
+        with _get_conn() as conn:
+            waitlist_dates = conn.execute(
+                """SELECT DISTINCT requested_date FROM waitlist
+                   WHERE notified=0 AND requested_date >= date('now')"""
+            ).fetchall()
+
+        for row in waitlist_dates:
+            date_str = row[0]
+
+            # Check current availability for this date
+            confirmed = state.get_confirmed_bookings_for_date(date_str)
+            # Simple heuristic: if fewer than 4 confirmed bookings, there's space
+            if len(confirmed) >= 4:
+                continue
+
+            # Notify all unnotified waitlisted customers for this date
+            waitlist_entries = state.get_waitlist_for_date(date_str)
+            for entry in waitlist_entries:
+                try:
+                    from google_auth import get_gmail_service
+                    from email_utils import send_customer_email, _p, _h2, RED, DARK
+
+                    service = get_gmail_service()
+                    cust_name = (entry.get('customer_name') or 'there').split()[0]
+
+                    content = (
+                        _p(f'Hi {cust_name},')
+                        + _p(f'Great news! A spot has become available on '
+                             f'<strong>{date_str}</strong> — a date you previously enquired about.')
+                        + _p('If you\'re still interested in booking, simply reply to this email '
+                             'and we\'ll get you confirmed as soon as possible.')
+                        + _p('Availability is limited, so please reply promptly to secure your spot.')
+                        + f'<p style="margin:24px 0 0;color:{DARK};font-size:15px;">'
+                          f'Kind regards,<br><strong style="color:{RED};">Rim Repair Team</strong></p>'
+                    )
+
+                    send_customer_email(
+                        service, entry['customer_email'],
+                        f'Availability Update — {date_str}', content
+                    )
+                    state.mark_waitlist_notified(entry['id'])
+                    logger.info(f"Waitlist notification sent to {entry['customer_email']} for {date_str}")
+
+                except Exception as e:
+                    logger.error(f"Waitlist notification failed for {entry.get('id')}: {e}")
+
+    except Exception as e:
+        logger.error(f"check_waitlist_opportunities error: {e}", exc_info=True)
 
 
 def run_db_cleanup():

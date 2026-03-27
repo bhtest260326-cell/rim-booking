@@ -144,6 +144,126 @@ def create_app():
         )
 
     # ------------------------------------------------------------------
+    # Customer self-service reschedule
+    # ------------------------------------------------------------------
+
+    @app.route('/reschedule/<token>', methods=['GET'])
+    def reschedule_page(token):
+        """Customer-facing reschedule page. Shows available days for their booking."""
+        from email_utils import verify_reschedule_token
+        from state_manager import StateManager
+        from maps_handler import get_week_availability, get_job_duration_minutes
+        import json
+
+        booking_id = verify_reschedule_token(token)
+        if not booking_id:
+            return "<h2>This reschedule link has expired or is invalid.</h2><p>Please reply to your confirmation email to reschedule.</p>", 400
+
+        state = StateManager()
+        # Check confirmed bookings
+        confirmed = state.get_confirmed_bookings()
+        booking = confirmed.get(booking_id)
+        if not booking:
+            return "<h2>Booking not found.</h2><p>It may have already been cancelled or rescheduled.</p>", 404
+
+        bd = booking.get('booking_data', {})
+        if isinstance(bd, str):
+            bd = json.loads(bd)
+
+        # Get available days
+        duration = get_job_duration_minutes(bd)
+        availability = get_week_availability(duration)
+        available_days = [slot for slot in availability if slot['available']]
+
+        customer_name = (bd.get('customer_name') or 'there').split()[0]
+        current_date = bd.get('preferred_date', 'Unknown')
+
+        # Build simple HTML page
+        options_html = ''
+        for slot in available_days:
+            options_html += f'<li><a href="/reschedule/{token}/confirm/{slot["date"]}">{slot["day_name"]} {slot["date"]}</a></li>'
+
+        if not options_html:
+            options_html = '<li>No available dates found in the next two weeks. Please reply to your email to reschedule.</li>'
+
+        html = f"""<!DOCTYPE html>
+<html><head><title>Reschedule Your Booking</title>
+<style>body{{font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;}}
+h1{{color:#C41230;}}a{{color:#C41230;}}ul{{line-height:2;}}</style></head>
+<body>
+<h1>Reschedule Your Booking</h1>
+<p>Hi {customer_name}, your current booking is for <strong>{current_date}</strong>.</p>
+<p>Please choose a new date from the available options below:</p>
+<ul>{options_html}</ul>
+<p><small>This link expires 7 days after your original confirmation.</small></p>
+</body></html>"""
+        return html
+
+    @app.route('/reschedule/<token>/confirm/<new_date>', methods=['GET'])
+    def reschedule_confirm(token, new_date):
+        """Confirm the reschedule to the selected date."""
+        import re, json
+        from email_utils import verify_reschedule_token
+        from state_manager import StateManager
+        from feature_flags import get_flag
+
+        # Validate date format
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', new_date):
+            return "<h2>Invalid date.</h2>", 400
+
+        booking_id = verify_reschedule_token(token)
+        if not booking_id:
+            return "<h2>This reschedule link has expired or is invalid.</h2>", 400
+
+        state = StateManager()
+        confirmed = state.get_confirmed_bookings()
+        booking = confirmed.get(booking_id)
+        if not booking:
+            return "<h2>Booking not found.</h2>", 404
+
+        bd = booking.get('booking_data', {})
+        if isinstance(bd, str):
+            bd = json.loads(bd)
+
+        old_date = bd.get('preferred_date', 'Unknown')
+        bd['preferred_date'] = new_date
+        bd['preferred_time'] = None  # Will be reassigned by route optimizer
+
+        # Update DB
+        state.update_confirmed_booking_data(booking_id, bd)
+
+        try:
+            state.log_booking_event(booking_id, 'rescheduled', actor='customer_self_service',
+                details={'old_date': old_date, 'new_date': new_date})
+        except Exception:
+            pass
+
+        # Notify owner via SMS
+        if get_flag('flag_auto_sms_owner'):
+            try:
+                from twilio_handler import send_sms
+                owner_mobile = os.environ.get('OWNER_MOBILE', '')
+                if owner_mobile:
+                    cust_name = (bd.get('customer_name') or 'Customer')
+                    send_sms(owner_mobile,
+                        f"Booking {booking_id} rescheduled by customer from {old_date} to {new_date} ({cust_name}). - Rim Repair System")
+            except Exception as e:
+                logger.warning(f"Owner reschedule SMS failed: {e}")
+
+        customer_name = (bd.get('customer_name') or 'there').split()[0]
+        html = f"""<!DOCTYPE html>
+<html><head><title>Booking Rescheduled</title>
+<style>body{{font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;}}
+h1{{color:#C41230;}}</style></head>
+<body>
+<h1>Booking Rescheduled</h1>
+<p>Hi {customer_name}, your booking has been rescheduled to <strong>{new_date}</strong>.</p>
+<p>You'll receive a confirmation shortly. If you have any questions, please reply to your original email.</p>
+<p><strong>Rim Repair Team</strong></p>
+</body></html>"""
+        return html
+
+    # ------------------------------------------------------------------
     # Health check
     # ------------------------------------------------------------------
 
