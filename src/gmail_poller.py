@@ -150,6 +150,40 @@ def poll_gmail():
         logger.error(f"Gmail poll error: {e}", exc_info=True)
 
 
+def _assign_best_slot(booking_data, state):
+    """Compute the next available slot on the requested date and update booking_data in place.
+
+    Checks confirmed bookings for the day, calculates travel time from the previous job
+    (or the business base if it's the first job), and picks the earliest gap that fits a
+    2-hour job. Advances to the next business day if nothing fits today.
+
+    The customer's original preferred_time is preserved in notes if it changed.
+    """
+    target_date = booking_data.get('preferred_date')
+    if not target_date:
+        return
+
+    try:
+        from maps_handler import find_next_available_slot
+        job_address = booking_data.get('address') or booking_data.get('suburb') or ''
+        day_bookings = state.get_confirmed_bookings_for_date(target_date)
+
+        found_date, found_time = find_next_available_slot(target_date, job_address, day_bookings)
+
+        original_time = booking_data.get('preferred_time')
+        if found_date != target_date or found_time != original_time:
+            # Record what the customer asked for so the owner can see it
+            pref_note = f"Customer requested {target_date} around {original_time or 'any time'}"
+            existing_notes = booking_data.get('notes') or ''
+            booking_data['notes'] = f"{pref_note}. {existing_notes}".strip('. ') if existing_notes else pref_note
+
+        booking_data['preferred_date'] = found_date
+        booking_data['preferred_time'] = found_time
+        logger.info(f"Slot assigned via Maps: {found_date} {found_time} (requested {target_date} {original_time})")
+    except Exception as e:
+        logger.warning(f"Slot computation skipped, keeping AI-extracted time: {e}")
+
+
 def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, customer_email, message_id_header=None):
     """Process a brand new booking enquiry."""
     booking_data, missing_fields, needs_clarification = extract_booking_details(
@@ -172,6 +206,7 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
             pass
         logger.info(f"Clarification sent to {customer_email}, thread {thread_id}")
     else:
+        _assign_best_slot(booking_data, state)
         pending_id = state.create_pending_booking(
             booking_data=booking_data,
             source='email',
@@ -225,6 +260,7 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
     else:
         # All data collected — remove clarification record, create proper pending booking
         state.remove_pending_clarification(existing_pending['id'])
+        _assign_best_slot(merged_data, state)
         pending_id = state.create_pending_booking(
             booking_data=merged_data,
             source='email',
