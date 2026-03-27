@@ -75,16 +75,18 @@ def create_calendar_event(booking_data):
         
         # Build description with all job details tech needs
         vehicle = ' '.join(filter(None, [
+            booking_data.get('vehicle_year'),
             booking_data.get('vehicle_colour'),
             booking_data.get('vehicle_make'),
             booking_data.get('vehicle_model')
         ])) or 'Not specified'
-        
+
         customer_phone = booking_data.get('customer_phone', 'N/A')
         customer_email = booking_data.get('customer_email', 'N/A')
         address = booking_data.get('address') or booking_data.get('suburb', 'TBC')
+        damage = booking_data.get('damage_description', '')
         notes = booking_data.get('notes', '')
-        
+
         # Travel time from previous job on the same day
         prev_address = _get_previous_job_address(booking_data)
         if prev_address and address and address != 'TBC':
@@ -101,6 +103,7 @@ Email: {customer_email}
 
 Vehicle: {vehicle}
 Service: {service_type}{f' x{num_rims} rims' if num_rims else ''}
+{f'Damage: {damage}' if damage else ''}
 Address: {address}
 Duration: ~{job_duration // 60}h{f' {job_duration % 60}m' if job_duration % 60 else ''}
 {travel_line}
@@ -177,6 +180,7 @@ def create_tentative_calendar_invite(booking_data, pending_id):
             title += f" (x{num_rims} rims)"
 
         vehicle = ' '.join(filter(None, [
+            booking_data.get('vehicle_year'),
             booking_data.get('vehicle_colour'),
             booking_data.get('vehicle_make'),
             booking_data.get('vehicle_model')
@@ -185,6 +189,7 @@ def create_tentative_calendar_invite(booking_data, pending_id):
         customer_phone = booking_data.get('customer_phone', 'N/A')
         customer_email = booking_data.get('customer_email', 'N/A')
         address = booking_data.get('address') or booking_data.get('suburb', 'TBC')
+        damage = booking_data.get('damage_description', '')
         notes = booking_data.get('notes', '')
 
         prev_address = _get_previous_job_address(booking_data)
@@ -205,6 +210,7 @@ Email: {customer_email}
 
 Vehicle: {vehicle}
 Service: {service_type}{f' x{num_rims} rims' if num_rims else ''}
+{f'Damage: {damage}' if damage else ''}
 Address: {address}
 Duration: ~{job_duration // 60}h{f' {job_duration % 60}m' if job_duration % 60 else ''}
 {travel_line}

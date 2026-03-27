@@ -56,8 +56,10 @@ Return ONLY a JSON object with this exact structure:
   "customer_name": "string or null",
   "customer_phone": "string or null",
   "vehicle_make": "string or null",
+  "vehicle_year": "string or null",
   "vehicle_model": "string or null",
   "vehicle_colour": "string or null",
+  "damage_description": "string or null",
   "service_type": "rim_repair | paint_touchup | multiple_rims | unknown",
   "num_rims": "integer or null",
   "preferred_date": "YYYY-MM-DD or null",
@@ -66,19 +68,28 @@ Return ONLY a JSON object with this exact structure:
   "address": "string or null",
   "suburb": "string or null",
   "notes": "string or null",
-  "missing_fields": ["human-readable list of missing required fields using plain English only - e.g. 'your full name', 'your service address', 'your preferred date', 'the type of service required'. Never use code variable names."],
+  "missing_fields": ["human-readable list of missing required fields using plain English only - e.g. 'your full name', 'your suburb', 'your preferred date', 'a description of the damage'. Never use code variable names."],
   "confidence": "high | medium | low"
 }}
 
-Required fields are: customer_name, address (or suburb), preferred_date, service_type.
-customer_phone is required if no email is available.
+Required fields are: customer_name, customer_phone, suburb (or address), preferred_date, vehicle_make, vehicle_year, vehicle_model, damage_description.
 vehicle_colour is NOT required — never ask for it.
+customer_email is taken from the email headers automatically — never ask for it.
 
 For address and suburb:
-- If a full street address is provided, use it as-is in the address field
-- If a postcode is provided, infer the suburb from it (e.g. 6008 = Subiaco, 6150 = Willetton, 6107 = Cannington) and populate the suburb field
+- If a full street address is provided, use it in the address field AND extract the suburb component into the suburb field
+- If a postcode is provided, infer the suburb from it (e.g. 6008 = Subiaco, 6150 = Willetton, 6107 = Cannington, 6000 = Perth CBD, 6005 = West Perth, 6009 = Nedlands, 6010 = Claremont, 6018 = Innaloo, 6020 = Scarborough, 6021 = Stirling, 6023 = Duncraig, 6025 = Greenwood, 6027 = Joondalup, 6065 = Wanneroo, 6100 = Burswood, 6101 = Belmont, 6102 = Rivervale, 6103 = Kewdale, 6104 = Cloverdale, 6108 = Queens Park, 6110 = Armadale, 6112 = Armadale, 6147 = Lynwood, 6148 = Rossmoyne, 6149 = Shelley, 6151 = Como, 6152 = Applecross, 6153 = Ardross, 6155 = Canning Vale, 6156 = Fremantle, 6163 = South Fremantle, 6164 = Success, 6169 = Rockingham) and populate the suburb field
 - If only a suburb name is given with no street, put it in suburb field
 - Never ask for suburb if a street address or postcode was already provided
+
+For damage_description:
+- Extract any description of the type or nature of damage (e.g. "kerb rash", "scraped", "cracked rim", "buckled", "paint peeling", "scuffed alloy")
+- If the customer describes the damage anywhere in their message, capture it here
+- This is required — if not provided, include 'a description of the damage or type of repair needed' in missing_fields
+
+For vehicle_year:
+- Extract the year of the vehicle if mentioned (e.g. "2019 BMW", "my 2021 Hilux")
+- Required — if not provided, include 'the year of your vehicle' in missing_fields
 
 For preferred_date and alternative_dates:
 - Today is {today}. Work out exact calendar dates from that anchor — do not guess or round.
@@ -193,10 +204,26 @@ def extract_booking_details(message_body, subject="", customer_email=""):
                 logger.warning(f"Invalid num_rims '{nr}' — clearing")
                 booking_data['num_rims'] = None
 
-        # address/suburb — if both null, ensure missing_fields includes address
+        # address/suburb — if both null, ensure missing_fields includes suburb
         if not booking_data.get('address') and not booking_data.get('suburb'):
             if not any('address' in f.lower() or 'suburb' in f.lower() or 'location' in f.lower() for f in missing_fields):
-                missing_fields.append('your service address')
+                missing_fields.append('your suburb or service address')
+
+        # vehicle_make, vehicle_year, vehicle_model — required fields
+        if not booking_data.get('vehicle_make'):
+            if not any('make' in f.lower() or 'vehicle make' in f.lower() for f in missing_fields):
+                missing_fields.append('the make of your vehicle (e.g. Toyota, BMW)')
+        if not booking_data.get('vehicle_year'):
+            if not any('year' in f.lower() for f in missing_fields):
+                missing_fields.append('the year of your vehicle')
+        if not booking_data.get('vehicle_model'):
+            if not any('model' in f.lower() for f in missing_fields):
+                missing_fields.append('the model of your vehicle (e.g. Camry, 3 Series)')
+
+        # damage_description — required
+        if not booking_data.get('damage_description'):
+            if not any('damage' in f.lower() or 'repair' in f.lower() for f in missing_fields):
+                missing_fields.append('a description of the damage or type of repair needed')
 
         if customer_email:
             booking_data['customer_email'] = customer_email
@@ -249,6 +276,7 @@ def format_booking_for_owner(booking_data):
     name = booking_data.get('customer_name') or 'Unknown'
     phone = booking_data.get('customer_phone') or booking_data.get('customer_email') or 'N/A'
     vehicle = ' '.join(filter(None, [
+        booking_data.get('vehicle_year'),
         booking_data.get('vehicle_colour'),
         booking_data.get('vehicle_make'),
         booking_data.get('vehicle_model')
@@ -262,6 +290,7 @@ def format_booking_for_owner(booking_data):
     date = booking_data.get('preferred_date') or 'TBC'
     time = booking_data.get('preferred_time') or 'TBC'
     address = booking_data.get('address') or booking_data.get('suburb') or 'TBC'
+    damage = booking_data.get('damage_description')
     notes = booking_data.get('notes')
 
     msg = f"""NEW BOOKING REQUEST
@@ -272,6 +301,8 @@ Service: {service}
 Date: {date} at {time}
 Address: {address}"""
 
+    if damage:
+        msg += f"\nDamage: {damage}"
     if notes:
         msg += f"\nNotes: {notes}"
 

@@ -358,17 +358,24 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
 
     # Re-check what's still missing
     address_present = merged_data.get('address') or merged_data.get('suburb')
-    service_present = merged_data.get('service_type') and merged_data.get('service_type') != 'unknown'
 
     still_missing = []
     if not merged_data.get('customer_name'):
         still_missing.append('your full name')
+    if not merged_data.get('customer_phone'):
+        still_missing.append('your phone number')
     if not address_present:
-        still_missing.append('your service address')
+        still_missing.append('your suburb or service address')
     if not merged_data.get('preferred_date'):
         still_missing.append('your preferred date')
-    if not service_present:
-        still_missing.append('the type of service required (rim repair or paint touch-up)')
+    if not merged_data.get('vehicle_make'):
+        still_missing.append('the make of your vehicle (e.g. Toyota, BMW)')
+    if not merged_data.get('vehicle_year'):
+        still_missing.append('the year of your vehicle')
+    if not merged_data.get('vehicle_model'):
+        still_missing.append('the model of your vehicle (e.g. Camry, 3 Series)')
+    if not merged_data.get('damage_description'):
+        still_missing.append('a description of the damage or type of repair needed')
 
     if still_missing:
         # Check how many times we've already asked — bail out after 3 attempts
