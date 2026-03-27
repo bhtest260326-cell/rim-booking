@@ -31,9 +31,38 @@ def get_email_body(message):
 def get_email_headers(message):
     headers = {}
     for h in message.get('payload', {}).get('headers', []):
-        if h['name'] in ('From', 'Subject', 'Reply-To', 'Message-ID'):
+        if h['name'] in ('From', 'Subject', 'Reply-To', 'Message-ID', 'Auto-Submitted', 'X-Autoreply'):
             headers[h['name']] = h['value']
     return headers
+
+
+# Sender addresses and subject patterns that indicate automated/system mail
+_BOUNCE_SENDERS = ('mailer-daemon@', 'postmaster@', 'noreply@', 'no-reply@', 'donotreply@')
+_BOUNCE_SUBJECTS = (
+    'delivery status notification',
+    'mail delivery failed',
+    'mail delivery failure',
+    'undeliverable',
+    'returned mail',
+    'delivery failure',
+    'failure notice',
+    'auto-reply',
+    'automatic reply',
+    'out of office',
+)
+
+def is_automated_email(customer_email, subject, headers):
+    """Return True if this looks like a bounce, DSN, or auto-reply that should be skipped."""
+    email_lower = customer_email.lower()
+    subject_lower = subject.lower()
+
+    if any(email_lower.startswith(prefix) for prefix in _BOUNCE_SENDERS):
+        return True
+    if any(pat in subject_lower for pat in _BOUNCE_SUBJECTS):
+        return True
+    if headers.get('Auto-Submitted', '').lower() not in ('', 'no'):
+        return True
+    return False
 
 def extract_email_address(from_header):
     if '<' in from_header and '>' in from_header:
@@ -84,6 +113,11 @@ def poll_gmail():
 
             our_email = os.environ.get('GMAIL_ADDRESS', '')
             if our_email and customer_email.lower() == our_email.lower():
+                state.mark_email_processed(msg_id)
+                continue
+
+            if is_automated_email(customer_email, subject, headers):
+                logger.info(f"Skipping automated/bounce email from {customer_email}: {subject}")
                 state.mark_email_processed(msg_id)
                 continue
 
