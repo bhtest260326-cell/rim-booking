@@ -47,8 +47,10 @@ For address and suburb:
 - Never ask for suburb if a street address or postcode was already provided
 
 For preferred_date and alternative_dates:
-- Interpret relative dates like "tomorrow", "next Tuesday" based on today's date
-- When a customer names SPECIFIC days as options (e.g. "Tuesday or Wednesday", "Monday, Wednesday or Friday"), set preferred_date to the EARLIEST of those days and put the rest in alternative_dates in order. ONLY use days the customer actually mentioned — never select a day they did not name.
+- Today is {today}. Work out exact calendar dates from that anchor — do not guess or round.
+- "Tuesday" or "next Tuesday" means the very next Tuesday after today. If today IS Tuesday, it means today. Never skip to the following week unless the customer says "the week after" or "in two weeks".
+- When a customer names SPECIFIC days as options (e.g. "Tuesday or Wednesday", "Monday, Wednesday or Friday"), set preferred_date to the EARLIEST of those days (as actual YYYY-MM-DD dates) and put the remaining days in alternative_dates in order. ONLY include days the customer explicitly named — never add extra days they did not mention.
+- Double-check your dates: if today is Friday 27 March 2026 and the customer says "Tuesday or Wednesday", the answer is preferred_date=2026-03-31, alternative_dates=["2026-04-01"]. Not April 2. Not any other day.
 - If they give a range like "anytime next week" or "any day next week", set preferred_date to the first weekday of that range and leave alternative_dates empty
 - Never pick a day of the week that the customer did not explicitly mention or imply
 - If they say "morning" use 09:00, "afternoon" use 13:00, "end of day" use 16:00
