@@ -931,7 +931,36 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
         state.mark_email_processed(msg_id)
         return
 
-    # --- intent == 'booking_detail' — proceed with normal extraction ---
+    elif intent == 'mixed':
+        # Customer provided booking details AND asked a question in the same message.
+        # Draft a reply answering their question and label blue for owner review,
+        # then fall through so the booking details are still extracted and processed.
+        logger.info(f"Mixed intent (booking + question) from {customer_email} on thread {thread_id} — drafting answer and continuing booking flow")
+        try:
+            draft_html = draft_off_scope_reply(body, first_name, existing_missing, original_data)
+            from email_utils import create_gmail_draft
+            draft_id = create_gmail_draft(service, customer_email, reply_subject, draft_html, thread_id=thread_id)
+            if draft_id:
+                logger.info(f"Mixed-intent draft {draft_id} created for {customer_email}")
+            else:
+                logger.warning(f"Mixed-intent draft creation returned None for {customer_email}")
+        except Exception as _de:
+            logger.error(f"Mixed-intent draft creation error for {customer_email}: {_de}")
+        try:
+            from label_manager import label_assistance_required
+            label_assistance_required(service, msg_id)
+        except Exception as _le:
+            logger.warning(f"Could not apply Assistance Required label for mixed intent: {_le}")
+        try:
+            state.log_booking_event(
+                existing_pending['id'], 'mixed_intent_question', actor='customer',
+                details={'message_snippet': body[:200], 'thread_id': thread_id}
+            )
+        except Exception:
+            pass
+        # DO NOT return — fall through to extract booking details from this message
+
+    # --- intent == 'booking_detail' or 'mixed' — proceed with normal extraction ---
 
     # Extract data from the reply only
     new_data, new_missing, _ = extract_booking_details(body, subject, customer_email)
