@@ -660,3 +660,79 @@ def send_decline_email(to_email, booking_data):
         send_customer_email(service, to_email, 'Re: Your Rim Repair Enquiry', content)
     except Exception as e:
         logger.error(f"Decline email send error: {e}")
+
+
+def send_reschedule_change_email(to_email, booking_data, booking_id, old_date):
+    """Send a 'Booking Change Confirmed' email after a customer self-service reschedule.
+
+    Includes a fresh reschedule link so the customer can amend again if needed.
+    """
+    try:
+        from email_utils import send_customer_email, generate_reschedule_token, _h2, _p, _info_table, RED, DARK
+        from html import escape as esc
+        service = get_gmail_service()
+
+        name = booking_data.get('customer_name', 'there')
+        first = esc(name.split()[0]) if name and name != 'there' else 'there'
+
+        new_date_fmt = _fmt_date(booking_data.get('preferred_date', 'TBC'))
+        old_date_fmt = _fmt_date(old_date) if old_date and old_date != 'Unknown' else old_date
+
+        address = esc(booking_data.get('address') or booking_data.get('suburb', 'your location'))
+        vehicle = esc(' '.join(filter(None, [
+            booking_data.get('vehicle_year'),
+            booking_data.get('vehicle_colour'),
+            booking_data.get('vehicle_make'),
+            booking_data.get('vehicle_model'),
+        ])) or 'your vehicle')
+        service_type = booking_data.get('service_type', 'rim repair').replace('_', ' ').title()
+        num_rims = booking_data.get('num_rims')
+        if num_rims:
+            service_type += f' \u00d7{num_rims} rims'
+
+        info_rows = [
+            ('New Date', new_date_fmt),
+            ('Address', address),
+            ('Vehicle', vehicle),
+            ('Service', service_type),
+        ]
+
+        # Generate a fresh reschedule link for further amendments
+        reschedule_para = ''
+        try:
+            base_url = os.environ.get('APP_BASE_URL', '').rstrip('/')
+            if base_url and booking_id:
+                reschedule_token = generate_reschedule_token(booking_id)
+                reschedule_url = f"{base_url}/reschedule/{reschedule_token}"
+                reschedule_para = _p(
+                    f'Need to change this again? <a href="{reschedule_url}" style="color:{RED};">Click here</a> '
+                    f'to pick a different date — no need to email us.',
+                    f'color:{DARK};'
+                )
+        except Exception:
+            pass
+
+        content = (
+            _p(f'Hi {first},')
+            + _p(
+                f'Your booking has been successfully moved to <strong>{new_date_fmt}</strong>.'
+                + (f' (Previously: {old_date_fmt}.)' if old_date_fmt and old_date_fmt != 'Unknown' else '')
+            )
+            + _h2('Updated Booking Details')
+            + _info_table(info_rows)
+            + _p('Our technician will come directly to you at the address provided. '
+                 'You\'ll receive a reminder on the morning of your appointment with your specific arrival window.')
+            + reschedule_para
+            + _p('If you have any questions, simply reply to this email.')
+            + f'<p style="margin:24px 0 0;color:{DARK};font-size:15px;">'
+              f'Kind regards,<br><strong style="color:{RED};">Rim Repair Team</strong></p>'
+        )
+
+        send_customer_email(
+            service, to_email,
+            f'Booking Change Confirmed — Perth Swedish & European Auto Centre',
+            content,
+        )
+        logger.info(f"Reschedule change email sent to {to_email} (booking {booking_id})")
+    except Exception as e:
+        logger.error(f"Reschedule change email send error: {e}")

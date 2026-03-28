@@ -376,18 +376,53 @@ def create_app():
             except Exception as e:
                 logger.warning(f"Owner reschedule SMS failed: {e}")
 
+        # Send booking change confirmation email to customer
+        if get_flag('flag_auto_email_customer'):
+            try:
+                customer_email = booking.get('customer_email') or bd.get('customer_email')
+                if customer_email:
+                    from twilio_handler import send_reschedule_change_email
+                    send_reschedule_change_email(customer_email, bd, booking_id, old_date)
+            except Exception as e:
+                logger.warning(f"Reschedule change email failed: {e}")
+
+        # Build a branded success page with a fresh reschedule link
+        from email_utils import build_email_html, generate_reschedule_token, _p, _h2, RED, DARK
+        from datetime import datetime as _dt2
+
+        try:
+            new_date_fmt = _dt2.strptime(new_date, '%Y-%m-%d').strftime('%A, %d %B %Y').replace(' 0', ' ')
+        except Exception:
+            new_date_fmt = new_date
+
         customer_name = (bd.get('customer_name') or 'there').split()[0]
-        html = f"""<!DOCTYPE html>
-<html><head><title>Booking Rescheduled</title>
-<style>body{{font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;}}
-h1{{color:#C41230;}}</style></head>
-<body>
-<h1>Booking Rescheduled</h1>
-<p>Hi {customer_name}, your booking has been rescheduled to <strong>{new_date}</strong>.</p>
-<p>You'll receive a confirmation shortly. If you have any questions, please reply to your original email.</p>
-<p><strong>Rim Repair Team</strong></p>
-</body></html>"""
-        return html
+
+        reschedule_again_para = ''
+        try:
+            base_url = os.environ.get('APP_BASE_URL', '').rstrip('/')
+            if base_url:
+                new_token = generate_reschedule_token(booking_id)
+                reschedule_again_url = f"{base_url}/reschedule/{new_token}"
+                reschedule_again_para = (
+                    f'<p style="margin:16px 0 0;font-size:15px;color:{DARK};">'
+                    f'Changed your mind? <a href="{reschedule_again_url}" style="color:{RED};">Click here</a> '
+                    f'to pick a different date.</p>'
+                )
+        except Exception:
+            pass
+
+        page_content = (
+            f'<h1 style="color:{RED};font-size:22px;margin:0 0 16px;">Booking Updated</h1>'
+            + _p(f'Hi {customer_name}, your booking has been successfully rescheduled to '
+                 f'<strong>{new_date_fmt}</strong>.')
+            + _p('A confirmation email has been sent to you with the updated details. '
+                 'If you have any questions, please reply to your original booking email.')
+            + reschedule_again_para
+            + f'<p style="margin:24px 0 0;color:{DARK};font-size:15px;">'
+              f'Kind regards,<br><strong style="color:{RED};">Rim Repair Team</strong></p>'
+        )
+
+        return build_email_html(page_content)
 
     # ------------------------------------------------------------------
     # Health check
