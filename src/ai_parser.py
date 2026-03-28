@@ -238,14 +238,10 @@ def is_availability_inquiry(subject: str, body: str) -> bool:
             messages=[{
                 'role': 'user',
                 'content': (
-                    "Does this email ask ONLY about availability or scheduling "
-                    "(e.g. 'when are you free?', 'what slots do you have?', 'are you available next week?') "
-                    "WITHOUT providing any booking details such as their address, vehicle make/model, "
-                    "number of rims, or other service information?\n\n"
-                    "Answer YES only if the customer is asking purely about availability/pricing/timing "
-                    "and has NOT provided vehicle, location, or service details.\n"
-                    "Answer NO if the customer has provided any booking details — even if they have not "
-                    "specified a preferred date.\n\n"
+                    "Does this email primarily ask about AVAILABILITY or SCHEDULING "
+                    "(e.g. 'when are you free?', 'what slots do you have?', "
+                    "'are you available next week?', 'when can you come?') "
+                    "rather than requesting a specific date?\n\n"
                     "Answer only YES or NO.\n\n"
                     f"{text}"
                 ),
