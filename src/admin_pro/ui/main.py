@@ -52,7 +52,6 @@ def _build_html():
 _CACHED_HTML = None
 
 def register(bp, require_auth):
-    import os
     from flask import Response, request
 
     @bp.route('/', methods=['GET'])
@@ -68,14 +67,21 @@ def register(bp, require_auth):
                 logger.error(f"SPA build failed: {e}", exc_info=True)
                 return f"<h1>Build Error</h1><pre>{e}</pre>", 500
 
-        # Inject auth token so apiFetch can include it in every API call.
-        # Safe because this page is already auth-protected.
-        token = os.environ.get('ADMIN_TOKEN', '')
         html = _CACHED_HTML
-        if token:
-            injection = f'<script>window.__AP_TOKEN={repr(token)};</script>'
-            html = html.replace('</head>', injection + '</head>', 1)
-        return Response(html, mimetype='text/html')
+
+        # Create a session cookie so that all API fetch() calls from this
+        # browser are automatically authenticated (cookie is sent same-origin).
+        from admin_pro import _create_session
+        sid = _create_session()
+
+        resp = Response(html, mimetype='text/html')
+        resp.set_cookie(
+            'ap_session', sid,
+            max_age=86400,   # 24 hours
+            httponly=True,
+            samesite='Strict',
+        )
+        return resp
 
     @bp.route('/refresh-cache', methods=['POST'])
     @require_auth

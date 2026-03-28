@@ -92,11 +92,6 @@ async function apiFetch(path, options = {}) {
     path = '/v2' + (path.startsWith('/') ? path : '/' + path);
   }
 
-  // Append auth token if available (injected by serve_spa into window.__AP_TOKEN)
-  if (window.__AP_TOKEN) {
-    path = path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(window.__AP_TOKEN);
-  }
-
   const method = (options.method || 'GET').toUpperCase();
 
   const headers = Object.assign({}, options.headers || {});
@@ -106,6 +101,7 @@ async function apiFetch(path, options = {}) {
 
   let response;
   try {
+    // credentials:'same-origin' ensures the ap_session cookie is sent with every request
     response = await fetch(path, Object.assign({}, options, { method, headers, credentials: 'same-origin' }));
   } catch (networkErr) {
     showToast('Network error — could not reach the server.', 'error');
