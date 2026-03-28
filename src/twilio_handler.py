@@ -552,6 +552,27 @@ def handle_owner_correction(pending_id, pending, correction_text):
             logger.warning(f"Slot computation failed: {e}")
     updated_booking = parse_owner_correction(original, correction_text, slot_hint=slot_hint)
     state.update_pending_booking_data(pending_id, updated_booking)
+
+    # If this booking has an associated mixed-intent draft, refresh it with the new date
+    # so the owner sees the correct date before sending.
+    if updated_booking.get('draft_id'):
+        try:
+            from google_auth import get_gmail_service as _gs
+            from email_utils import update_gmail_draft
+            from ai_parser import draft_off_scope_reply as _dor
+            _svc = _gs()
+            _fn = (updated_booking.get('customer_name') or 'there').split()[0]
+            _q = updated_booking.get('draft_question_body', '')
+            _to = updated_booking.get('draft_to_email') or updated_booking.get('customer_email', '')
+            _subj = updated_booking.get('draft_subject', 'Re: Your Booking')
+            _tid = updated_booking.get('draft_thread_id')
+            if _q and _to:
+                _html = _dor(_q, _fn, [], updated_booking)
+                update_gmail_draft(_svc, updated_booking['draft_id'], _to, _subj, _html, thread_id=_tid)
+                logger.info(f"Refreshed draft {updated_booking['draft_id']} with updated date for booking {pending_id}")
+        except Exception as _dre:
+            logger.warning(f"Could not refresh draft on correction for {pending_id}: {_dre}")
+
     msg = f"Updated booking:\n\n{format_booking_for_owner(updated_booking)}\n\n[ID:{pending_id}]"
     try:
         send_sms(os.environ['OWNER_MOBILE'], msg)

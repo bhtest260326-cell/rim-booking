@@ -341,6 +341,63 @@ def register_gmail_watch():
         return None
 
 
+def _process_sent_message(service, state, msg_id):
+    """Detect when the owner sends a mixed-intent draft and auto-confirm the booking.
+
+    When the owner sends the draft answer (instead of replying YES to the SMS),
+    this creates the calendar event and confirms the booking automatically.
+    Only acts on bookings that were created from a mixed-intent draft (have draft_id set).
+    """
+    sent_key = f'sent_{msg_id}'
+    if state.is_email_processed(sent_key):
+        return
+    try:
+        message = service.users().messages().get(
+            userId='me', id=msg_id, format='metadata',
+            metadataHeaders=['From', 'Subject']
+        ).execute()
+
+        if 'SENT' not in message.get('labelIds', []):
+            return
+
+        thread_id = message.get('threadId')
+        if not thread_id:
+            return
+
+        from state_manager import _get_conn
+        import json as _json
+        with _get_conn() as conn:
+            row = conn.execute(
+                """SELECT id, booking_data FROM bookings
+                   WHERE thread_id = ? AND status = 'awaiting_owner'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (thread_id,)
+            ).fetchone()
+
+        if not row:
+            return
+
+        booking_id = row['id']
+        booking_data = _json.loads(row['booking_data'])
+
+        # Only auto-confirm bookings that originated from a mixed-intent draft
+        if not booking_data.get('draft_id'):
+            return
+
+        pending = state.get_pending_booking(booking_id)
+        if not pending:
+            return
+
+        logger.info(f"Owner sent draft reply for booking {booking_id} (thread {thread_id}) — auto-confirming")
+        from twilio_handler import handle_owner_confirm
+        handle_owner_confirm(booking_id, pending)
+
+    except Exception as e:
+        logger.error(f"_process_sent_message error for msg {msg_id}: {e}", exc_info=True)
+    finally:
+        state.mark_email_processed(sent_key)
+
+
 def process_history_notification(new_history_id):
     """Process new Gmail messages since the last stored historyId.
 
@@ -383,6 +440,20 @@ def process_history_notification(new_history_id):
             for msg_added in record.get('messagesAdded', []):
                 msg_id = msg_added['message']['id']
                 _process_single_message(service, state, msg_id)
+
+        # Also watch SENT label so we can auto-confirm when the owner sends a draft reply
+        try:
+            sent_history_resp = service.users().history().list(
+                userId='me',
+                startHistoryId=last_id,
+                historyTypes=['messageAdded'],
+                labelId='SENT'
+            ).execute()
+            for record in sent_history_resp.get('history', []):
+                for msg_added in record.get('messagesAdded', []):
+                    _process_sent_message(service, state, msg_added['message']['id'])
+        except Exception as _se:
+            logger.warning(f"Sent history processing error (non-fatal): {_se}")
 
     except Exception as e:
         logger.error(f"History notification processing error: {e}", exc_info=True)
@@ -865,6 +936,8 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
 def handle_clarification_reply(service, state, msg_id, thread_id, existing_pending, body, subject, customer_email, message_id_header=None):
     """Customer replied with missing info — merge with existing partial booking."""
     original_data = existing_pending.get('booking_data', {})
+    _mixed_draft_id = None      # set in mixed block; used after slot assignment
+    _mixed_question_body = None
 
     # --- Intent Classification ---
     # Before extracting booking details, classify whether this reply is a question
@@ -944,6 +1017,8 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
             from email_utils import create_gmail_draft
             draft_id = create_gmail_draft(service, customer_email, reply_subject, draft_html, thread_id=thread_id)
             if draft_id:
+                _mixed_draft_id = draft_id
+                _mixed_question_body = body
                 logger.info(f"Mixed-intent draft {draft_id} created for {customer_email}")
             else:
                 logger.warning(f"Mixed-intent draft creation returned None for {customer_email}")
@@ -1130,6 +1205,31 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
         except Exception:
             pass
         logger.info(f"Clarification complete, owner confirmation sent for booking {pending_id}")
+
+        # Mixed-intent: update draft with assigned slot and store metadata so the booking
+        # can be auto-confirmed when the owner sends the draft, and the draft can be
+        # refreshed if the owner reschedules via SMS before sending.
+        if _mixed_draft_id:
+            try:
+                from email_utils import update_gmail_draft
+                from ai_parser import draft_off_scope_reply as _dor
+                _draft_meta = dict(merged_data)
+                _draft_meta['draft_id'] = _mixed_draft_id
+                _draft_meta['draft_question_body'] = _mixed_question_body or ''
+                _draft_meta['draft_to_email'] = customer_email
+                _draft_meta['draft_thread_id'] = thread_id
+                _draft_meta['draft_subject'] = reply_subject
+                state.update_pending_booking_data(pending_id, _draft_meta)
+                refreshed_html = _dor(_mixed_question_body or '', first_name, [], _draft_meta)
+                update_gmail_draft(service, _mixed_draft_id, customer_email, reply_subject,
+                                   refreshed_html, thread_id=thread_id)
+                logger.info(
+                    f"Mixed-intent draft {_mixed_draft_id} refreshed with slot "
+                    f"{merged_data.get('preferred_date')} {merged_data.get('preferred_time')} "
+                    f"for booking {pending_id}"
+                )
+            except Exception as _dre:
+                logger.error(f"Could not refresh mixed-intent draft for booking {pending_id}: {_dre}")
 
 
 def send_clarification_email(service, to_email, original_subject, missing_fields,

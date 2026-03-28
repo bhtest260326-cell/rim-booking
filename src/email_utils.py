@@ -209,6 +209,30 @@ def verify_reschedule_token(token: str) -> str | None:
         return None
 
 
+def update_gmail_draft(service, draft_id: str, to_email: str, subject: str, html_body: str, thread_id: str = None) -> bool:
+    """Replace the content of an existing Gmail draft. Returns True on success.
+
+    Used to refresh the booking date in a mixed-intent draft after the slot is assigned
+    or after the owner reschedules via SMS.
+    """
+    try:
+        full_html = build_email_html(html_body)
+        msg = MIMEMultipart('alternative')
+        msg['to'] = to_email
+        msg['subject'] = subject
+        msg.attach(MIMEText(full_html, 'html'))
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        body_dict: dict = {'message': {'raw': raw}}
+        if thread_id:
+            body_dict['message']['threadId'] = thread_id
+        service.users().drafts().update(userId='me', id=draft_id, body=body_dict).execute()
+        logger.info(f"Gmail draft {draft_id} updated (to: {to_email})")
+        return True
+    except Exception as e:
+        logger.error(f"update_gmail_draft error (draft: {draft_id}, to: {to_email}): {e}")
+        return False
+
+
 def create_gmail_draft(service, to_email: str, subject: str, html_body: str, thread_id: str = None) -> str | None:
     """Create a Gmail draft in the Drafts folder. Does NOT send.
 
