@@ -483,7 +483,11 @@ def _assign_best_slot(booking_data, state):
         found_time = None
 
         for candidate_date in preferred_dates:
-            day_bookings = state.get_confirmed_bookings_for_date(candidate_date)
+            # Include awaiting_owner bookings so pending jobs consume capacity
+            # and don't allow two unconfirmed bookings to claim the same slot.
+            confirmed = state.get_confirmed_bookings_for_date(candidate_date)
+            pending = state.get_pending_bookings_for_date(candidate_date)
+            day_bookings = confirmed + pending
             slot_date, slot_time = find_next_available_slot(
                 candidate_date, job_address, day_bookings, new_booking_data=booking_data
             )
@@ -496,9 +500,10 @@ def _assign_best_slot(booking_data, state):
 
         # None of the preferred dates had room — fall back to next business day
         if not found_date:
-            day_bookings = state.get_confirmed_bookings_for_date(target_date)
+            confirmed = state.get_confirmed_bookings_for_date(target_date)
+            pending = state.get_pending_bookings_for_date(target_date)
             found_date, found_time = find_next_available_slot(
-                target_date, job_address, day_bookings, new_booking_data=booking_data
+                target_date, job_address, confirmed + pending, new_booking_data=booking_data
             )
 
         if found_date != target_date or found_time != original_time:

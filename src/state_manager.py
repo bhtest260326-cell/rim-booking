@@ -540,6 +540,19 @@ class StateManager:
             """, (date_str,)).fetchall()
         return [json.loads(r['booking_data']) for r in rows]
 
+    def get_pending_bookings_for_date(self, date_str):
+        """Return booking_data dicts for awaiting_owner bookings on a given date.
+
+        Used by _assign_best_slot so that pending-but-not-yet-confirmed bookings
+        are treated as capacity-consuming, preventing overbooking on the same day.
+        """
+        with self._conn() as conn:
+            rows = conn.execute("""
+                SELECT booking_data FROM bookings
+                WHERE status='awaiting_owner' AND preferred_date=?
+            """, (date_str,)).fetchall()
+        return [json.loads(r['booking_data']) for r in rows]
+
     # ------------------------------------------------------------------
     # Deduplication
     # ------------------------------------------------------------------
