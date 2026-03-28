@@ -382,7 +382,7 @@ def create_app():
                 customer_email = booking.get('customer_email') or bd.get('customer_email')
                 if customer_email:
                     from twilio_handler import send_reschedule_change_email
-                    send_reschedule_change_email(customer_email, bd, booking_id, old_date)
+                    send_reschedule_change_email(customer_email, bd, booking_id, old_date, thread_id=booking.get('thread_id'))
             except Exception as e:
                 logger.warning(f"Reschedule change email failed: {e}")
 

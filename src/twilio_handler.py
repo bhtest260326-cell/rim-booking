@@ -353,7 +353,7 @@ def handle_owner_confirm(pending_id, pending):
     if customer_phone and get_flag('flag_auto_sms_customer'):
         send_sms(customer_phone, confirmation_msg)
     if customer_email and get_flag('flag_auto_email_customer'):
-        send_confirmation_email(customer_email, booking_data, booking_id=pending_id)
+        send_confirmation_email(customer_email, booking_data, booking_id=pending_id, thread_id=pending.get('thread_id'))
     gmail_msg_id = pending.get('gmail_msg_id')
     if gmail_msg_id:
         try:
@@ -411,7 +411,7 @@ def handle_owner_decline(pending_id, pending):
             f"Unfortunately, we're unable to accommodate your requested time. "
             f"Please reply and we'll do our best to find a suitable time for you.")
     if customer_email and get_flag('flag_auto_email_customer'):
-        send_decline_email(customer_email, booking_data)
+        send_decline_email(customer_email, booking_data, thread_id=pending.get('thread_id'))
     gmail_msg_id = pending.get('gmail_msg_id')
     if gmail_msg_id:
         try:
@@ -574,7 +574,7 @@ def build_customer_confirmation_sms(booking_data):
         f"Payment is by EFTPOS on the day. Any questions, just reply. - Rim Repair"
     )
 
-def send_confirmation_email(to_email, booking_data, booking_id=None):
+def send_confirmation_email(to_email, booking_data, booking_id=None, thread_id=None):
     try:
         from email_utils import send_customer_email, _h2, _p, _info_table, _ul, RED, DARK, esc
         service = get_gmail_service()
@@ -634,12 +634,12 @@ def send_confirmation_email(to_email, booking_data, booking_id=None):
               f'Kind regards,<br><strong style="color:#C41230;">Rim Repair Team</strong></p>'
         )
 
-        send_customer_email(service, to_email, 'Booking Confirmed — Perth Swedish & European Auto Centre', content)
+        send_customer_email(service, to_email, 'Booking Confirmed — Perth Swedish & European Auto Centre', content, thread_id=thread_id)
         logger.info(f"Confirmation email sent to {to_email}")
     except Exception as e:
         logger.error(f"Email send error: {e}")
 
-def send_decline_email(to_email, booking_data):
+def send_decline_email(to_email, booking_data, thread_id=None):
     try:
         from email_utils import send_customer_email, _p, _h2, DARK, esc
         service = get_gmail_service()
@@ -657,12 +657,12 @@ def send_decline_email(to_email, booking_data):
               f'Kind regards,<br><strong style="color:#C41230;">Rim Repair Team</strong></p>'
         )
 
-        send_customer_email(service, to_email, 'Re: Your Rim Repair Enquiry', content)
+        send_customer_email(service, to_email, 'Re: Your Rim Repair Enquiry', content, thread_id=thread_id)
     except Exception as e:
         logger.error(f"Decline email send error: {e}")
 
 
-def send_reschedule_change_email(to_email, booking_data, booking_id, old_date):
+def send_reschedule_change_email(to_email, booking_data, booking_id, old_date, thread_id=None):
     """Send a 'Booking Change Confirmed' email after a customer self-service reschedule.
 
     Includes a fresh reschedule link so the customer can amend again if needed.
@@ -732,6 +732,7 @@ def send_reschedule_change_email(to_email, booking_data, booking_id, old_date):
             service, to_email,
             f'Booking Change Confirmed — Perth Swedish & European Auto Centre',
             content,
+            thread_id=thread_id,
         )
         logger.info(f"Reschedule change email sent to {to_email} (booking {booking_id})")
     except Exception as e:

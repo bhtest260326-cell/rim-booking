@@ -409,7 +409,7 @@ def send_morning_job_notifications():
             state.mark_reminder_sent(booking_id, 'morning_notification')
             continue
 
-        _send_morning_email(customer_email, booking_data)
+        _send_morning_email(customer_email, booking_data, thread_id=booking.get('thread_id'))
         state.mark_reminder_sent(booking_id, 'morning_notification')
         logger.info(f"Morning notification sent for booking {booking_id}")
 
@@ -424,7 +424,7 @@ def _time_window(time_str, duration_minutes=120):
     except Exception:
         return time_str
 
-def _send_morning_email(to_email, booking_data):
+def _send_morning_email(to_email, booking_data, thread_id=None):
     """Send the day-of morning notification email to a customer."""
     try:
         import html as _html
@@ -472,7 +472,8 @@ def _send_morning_email(to_email, booking_data):
         send_customer_email(
             service, to_email,
             'Your Rim Repair Technician is on the Way Today',
-            content
+            content,
+            thread_id=thread_id,
         )
         logger.info(f"Morning notification email sent to {to_email}")
     except Exception as e:
