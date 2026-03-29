@@ -639,7 +639,7 @@ def register(bp, require_auth):
                 try:
                     with _get_conn() as conn:
                         row = conn.execute(
-                            "SELECT booking_data, status, customer_email, thread_id FROM bookings WHERE id=?",
+                            "SELECT booking_data, status, customer_email, thread_id, calendar_event_id FROM bookings WHERE id=?",
                             (booking_id,)
                         ).fetchone()
 
@@ -688,6 +688,16 @@ def register(bp, require_auth):
                                 'error': f"status is '{current_status}', expected 'awaiting_owner'"
                             })
                             continue
+
+                        # Delete tentative calendar event before declining
+                        existing_event_id = row['calendar_event_id']
+                        if existing_event_id:
+                            try:
+                                from calendar_handler import delete_calendar_event
+                                delete_calendar_event(existing_event_id)
+                                logger.info("Bulk decline: deleted calendar event %s for booking %s", existing_event_id, booking_id)
+                            except Exception:
+                                logger.exception("Bulk decline: calendar delete failed for booking %s (non-blocking)", booking_id)
 
                         success = state.decline_booking(booking_id)
                         if not success:

@@ -352,6 +352,9 @@ def delete_calendar_event(event_id):
         logger.info(f"Calendar event {event_id} deleted")
         return True
     except HttpError as e:
+        if e.resp.status in (404, 410):
+            logger.info(f"Calendar event {event_id} already deleted (HTTP {e.resp.status})")
+            return True
         logger.error(f"Error deleting calendar event {event_id}: {e}")
         return False
     except Exception as e:
