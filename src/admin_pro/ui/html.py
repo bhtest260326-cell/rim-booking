@@ -411,27 +411,8 @@ HTML_SECTIONS = """
 <section class="ap-section" id="section-calendar">
   <div class="ap-calendar-layout">
     <div class="ap-calendar-main">
-      <div class="ap-calendar-header">
-        <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="calendarNav(-1)" id="cal-prev">
-          <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><polyline points="15,18 9,12 15,6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <h2 class="ap-calendar-month-title" id="ap-calendar-title">Month Year</h2>
-        <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="calendarNav(1)" id="cal-next">
-          <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><polyline points="9,18 15,12 9,6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <div class="ap-calendar-view-toggle">
-          <button class="ap-pill active" id="cal-view-month" onclick="setCalendarView('month')">Month</button>
-          <button class="ap-pill" id="cal-view-week" onclick="setCalendarView('week')">Week</button>
-        </div>
-        <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="goToToday()">Today</button>
-      </div>
-
-      <div class="ap-calendar-weekdays">
-        <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div>
-        <div>Fri</div><div>Sat</div><div>Sun</div>
-      </div>
-
-      <div class="ap-calendar" id="ap-calendar-grid">
+      <div id="ap-calendar-header"></div>
+      <div id="ap-calendar-grid">
         <div class="ap-calendar-loading">Loading calendar…</div>
       </div>
     </div>
@@ -442,10 +423,10 @@ HTML_SECTIONS = """
         <span class="ap-card-badge" id="day-detail-count"></span>
       </div>
       <div class="ap-day-jobs-list" id="day-jobs-list">
-        <div class="ap-today-empty">Click a calendar day to see jobs.</div>
+        <div class="ap-today-empty">Click a day header to see jobs.</div>
       </div>
       <div class="ap-day-detail-actions" id="day-detail-actions" style="display:none">
-        <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="cancelDayPrompt()">Cancel All Jobs This Day</button>
+        <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="showCancelDayForm()">Cancel All Jobs This Day</button>
       </div>
     </div>
   </div>

@@ -620,6 +620,184 @@ def register(bp, require_auth):
             logger.exception("bulk_action failed")
             return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
+    # ------------------------------------------------------------------
+    # POST /api/bookings/<booking_id>/mark-moved
+    # ------------------------------------------------------------------
+    @bp.route('/api/bookings/<booking_id>/mark-moved', methods=['POST'])
+    @require_auth
+    def mark_booking_moved(booking_id):
+        try:
+            body = request.get_json(silent=True) or {}
+            original_date = body.get('original_date')
+            original_time = body.get('original_time')
+
+            state = StateManager()
+
+            with _get_conn() as conn:
+                row = conn.execute(
+                    "SELECT booking_data, status FROM bookings WHERE id=?",
+                    (booking_id,)
+                ).fetchone()
+
+            if not row:
+                return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+
+            try:
+                booking_data = json.loads(row['booking_data']) if row['booking_data'] else {}
+            except (ValueError, TypeError):
+                booking_data = {}
+
+            booking_data['moved_pending_notification'] = True
+            booking_data['original_date'] = original_date
+            booking_data['original_time'] = original_time
+
+            status = row['status']
+            if status == 'awaiting_owner':
+                state.update_pending_booking_data(booking_id, booking_data)
+            elif status == 'confirmed':
+                state.update_confirmed_booking_data(booking_id, booking_data)
+            else:
+                with _get_conn() as conn:
+                    conn.execute(
+                        "UPDATE bookings SET booking_data=?, preferred_date=? WHERE id=?",
+                        (
+                            json.dumps(booking_data),
+                            booking_data.get('preferred_date'),
+                            booking_id,
+                        )
+                    )
+
+            new_date = booking_data.get('preferred_date')
+            new_time = booking_data.get('preferred_time')
+
+            state.log_booking_event(
+                booking_id, 'rescheduled', actor='owner_ui',
+                details={
+                    'old_date': original_date,
+                    'new_date': new_date,
+                    'old_time': original_time,
+                    'new_time': new_time,
+                }
+            )
+            logger.info("Admin marked booking %s as moved (old=%s/%s new=%s/%s)",
+                         booking_id, original_date, original_time, new_date, new_time)
+            return jsonify({'ok': True})
+
+        except Exception:
+            logger.exception("mark_booking_moved failed for %s", booking_id)
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
+    # ------------------------------------------------------------------
+    # POST /api/bookings/<booking_id>/send-change-notification
+    # ------------------------------------------------------------------
+    @bp.route('/api/bookings/<booking_id>/send-change-notification', methods=['POST'])
+    @require_auth
+    def send_change_notification(booking_id):
+        try:
+            state = StateManager()
+
+            with _get_conn() as conn:
+                row = conn.execute(
+                    "SELECT booking_data, status, customer_email, thread_id FROM bookings WHERE id=?",
+                    (booking_id,)
+                ).fetchone()
+
+            if not row:
+                return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+
+            try:
+                booking_data = json.loads(row['booking_data']) if row['booking_data'] else {}
+            except (ValueError, TypeError):
+                booking_data = {}
+
+            if not booking_data.get('moved_pending_notification'):
+                return jsonify({'ok': False, 'error': 'No pending move to notify'})
+
+            customer_email = row['customer_email'] or booking_data.get('customer_email')
+            thread_id = row['thread_id']
+            email_sent = False
+
+            if customer_email:
+                try:
+                    from twilio_handler import get_gmail_service, _fmt_date
+                    from email_utils import send_customer_email, _h2, _p, _info_table, DARK, esc
+
+                    service = get_gmail_service()
+                    name = booking_data.get('customer_name', 'there')
+                    first = esc(name.split()[0]) if name and name != 'there' else 'there'
+
+                    new_date_raw = booking_data.get('preferred_date', 'TBC')
+                    new_date = _fmt_date(new_date_raw)
+                    new_time = booking_data.get('preferred_time', 'TBC')
+                    original_date = _fmt_date(booking_data.get('original_date', 'TBC'))
+                    original_time = booking_data.get('original_time', 'TBC')
+
+                    address = esc(booking_data.get('address') or booking_data.get('suburb', 'your location'))
+
+                    info_rows = [
+                        ('New Date', new_date),
+                        ('New Time', new_time),
+                        ('Address', address),
+                    ]
+
+                    content = (
+                        _p(f'Hi {first},')
+                        + _p('We\'re writing to let you know that your booking has been rescheduled.')
+                        + _h2('Updated Booking Details')
+                        + _info_table(info_rows)
+                        + _p(f'Your booking has been moved from <strong>{original_date}</strong> at '
+                             f'<strong>{original_time}</strong> to <strong>{new_date}</strong> at '
+                             f'<strong>{new_time}</strong>.')
+                        + _p('If this new time doesn\'t work for you, simply reply to this email '
+                             'and we\'ll find a better time.')
+                        + f'<p style="margin:24px 0 0;color:{DARK};font-size:15px;">'
+                          f'Kind regards,<br><strong style="color:#C41230;">Wheel Doctor Team</strong></p>'
+                    )
+
+                    ref = f' #{booking_id}'
+                    send_customer_email(
+                        service, customer_email,
+                        f'Booking Rescheduled{ref} — Perth Swedish & European Auto Centre',
+                        content, thread_id=thread_id
+                    )
+                    email_sent = True
+                    logger.info("Change notification email sent to %s for booking %s", customer_email, booking_id)
+
+                except Exception:
+                    logger.exception("send_change_notification: email failed for booking %s", booking_id)
+
+            # Clear the pending notification flags
+            booking_data.pop('moved_pending_notification', None)
+            booking_data.pop('original_date', None)
+            booking_data.pop('original_time', None)
+
+            status = row['status']
+            if status == 'awaiting_owner':
+                state.update_pending_booking_data(booking_id, booking_data)
+            elif status == 'confirmed':
+                state.update_confirmed_booking_data(booking_id, booking_data)
+            else:
+                with _get_conn() as conn:
+                    conn.execute(
+                        "UPDATE bookings SET booking_data=?, preferred_date=? WHERE id=?",
+                        (
+                            json.dumps(booking_data),
+                            booking_data.get('preferred_date'),
+                            booking_id,
+                        )
+                    )
+
+            state.log_booking_event(
+                booking_id, 'change_notification_sent', actor='owner_ui',
+                details={'email_sent': email_sent}
+            )
+            logger.info("Change notification processed for booking %s (email_sent=%s)", booking_id, email_sent)
+            return jsonify({'ok': True, 'email_sent': email_sent})
+
+        except Exception:
+            logger.exception("send_change_notification failed for %s", booking_id)
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
 
 # ---------------------------------------------------------------------------
 # Self-registration — executed when the module is imported by admin_pro/__init__.py

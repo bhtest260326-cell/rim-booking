@@ -2464,6 +2464,213 @@ body.ap-body {
   border-top: 1px solid var(--ap-border);
 }
 
+/* --- Week View Calendar ----------------------------------- */
+.ap-week-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.ap-week-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ap-text);
+  flex: 1;
+  text-align: center;
+}
+
+.ap-week-grid {
+  display: grid;
+  grid-template-columns: 60px repeat(5, 1fr);
+  border: 1px solid var(--ap-border);
+  border-radius: var(--ap-radius);
+  overflow: hidden;
+  background: var(--ap-border);
+  gap: 1px;
+}
+
+.ap-week-corner {
+  background: var(--ap-surface);
+  padding: 8px;
+}
+
+.ap-week-day-header {
+  background: var(--ap-surface);
+  text-align: center;
+  padding: 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ap-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background var(--ap-transition);
+}
+
+.ap-week-day-header:hover {
+  background: rgba(200,16,46,0.08);
+}
+
+.ap-week-day-header.today {
+  color: var(--ap-accent);
+  background: rgba(200,16,46,0.12);
+}
+
+.ap-week-day-header .day-num {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.ap-week-time-label {
+  background: var(--ap-card);
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--ap-text-muted);
+  text-align: right;
+  border-right: 1px solid var(--ap-border);
+  min-height: 48px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.ap-week-cell {
+  background: var(--ap-card);
+  min-height: 48px;
+  padding: 2px;
+  position: relative;
+  transition: background 0.15s;
+}
+
+.ap-week-cell:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.ap-week-cell.drag-over {
+  background: rgba(200,16,46,0.15) !important;
+  outline: 2px dashed var(--ap-accent);
+  outline-offset: -2px;
+}
+
+/* Booking cards in week view */
+.ap-week-booking {
+  background: rgba(34, 197, 94, 0.15);
+  border-left: 3px solid var(--ap-green);
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin: 1px;
+  font-size: 12px;
+  cursor: grab;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+.ap-week-booking:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  transform: translateY(-1px);
+}
+
+.ap-week-booking.dragging {
+  opacity: 0.4;
+  transform: scale(0.95);
+}
+
+.ap-week-booking.pending {
+  background: rgba(245, 158, 11, 0.15);
+  border-left-color: var(--ap-amber);
+}
+
+.ap-week-booking.changed {
+  background: rgba(249, 115, 22, 0.18);
+  border-left-color: #f97316;
+}
+
+.ap-week-booking .booking-name {
+  font-weight: 600;
+  color: var(--ap-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ap-week-booking .booking-time {
+  color: var(--ap-text-muted);
+  font-size: 11px;
+}
+
+.ap-week-booking .booking-service {
+  color: var(--ap-text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Notify button on changed bookings */
+.ap-notify-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f97316;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 3px;
+  animation: notifyPulse 2s ease-in-out infinite;
+  transition: background 0.15s;
+}
+
+.ap-notify-btn:hover {
+  background: #ea580c;
+  animation: none;
+}
+
+@keyframes notifyPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(249, 115, 22, 0); }
+}
+
+/* Notify button in booking detail modal */
+.ap-notify-btn-lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f97316;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  animation: notifyPulse 2s ease-in-out infinite;
+  transition: background 0.15s;
+}
+
+.ap-notify-btn-lg:hover {
+  background: #ea580c;
+  animation: none;
+}
+
+/* Week view responsive */
+@media (max-width: 900px) {
+  .ap-week-grid {
+    grid-template-columns: 50px repeat(5, 1fr);
+  }
+  .ap-week-booking .booking-service {
+    display: none;
+  }
+}
+
 /* --- Loading / Animations ---------------------------------- */
 .ap-spinner {
   width: 32px;

@@ -513,6 +513,19 @@ async function openBookingDetail(bookingId) {
 
       renderImageAssessment(bd.image_assessment),
 
+      // ── Pending Change Notification ──
+      (bd.moved_pending_notification ? [
+        \'<div class="ap-bd-sep"></div>\',
+        \'<div style="background:rgba(249,115,22,0.12);border:1px solid rgba(249,115,22,0.3);border-radius:8px;padding:12px 14px;">\',
+        \'  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">\',
+        \'    <span style="font-size:16px">⚠️</span>\',
+        \'    <strong style="color:#f97316">Booking Moved — Customer Not Yet Notified</strong>\',
+        \'  </div>\',
+        (bd.original_date ? \'  <div class="ap-text-muted" style="font-size:13px;margin-bottom:8px">Original: \' + escapeHtml(bd.original_date) + (bd.original_time ? \' at \' + escapeHtml(bd.original_time) : \'\') + \' → Now: \' + dateStr + \' at \' + timeStr + \'</div>\' : \'\'),
+        \'  <button class="ap-notify-btn-lg" onclick="calNotifyCustomer(\\'\' + bookingId + \'\\')">📧 Send Change Notification</button>\',
+        \'</div>\',
+      ].join(\'\') : \'\'),
+
       // ── Activity ──
       \'<div class="ap-bd-sep"></div>\',
       \'<div class="ap-detail-heading">Activity</div>\',
@@ -521,13 +534,18 @@ async function openBookingDetail(bookingId) {
       \'</div>\',
     ].join(\'\');
 
+    const notifyBtn = bd.moved_pending_notification
+      ? \'<button class="ap-notify-btn-lg" onclick="calNotifyCustomer(\\'\' + bookingId + \'\\')">📧 Notify Customer of Change</button>\'
+      : \'\';
+
     const footer = (booking.status === \'awaiting_owner\')
       ? [
           \'<button class="ap-btn ap-btn-success" onclick="confirmBookingFromModal(\\'\' + bookingId + \'\\')">&#10003; Confirm</button>\',
           \'<button class="ap-btn ap-btn-danger" onclick="openDeclineModal(\\'\' + bookingId + \'\\')">&#10007; Decline</button>\',
           \'<button class="ap-btn ap-btn-ghost" onclick="openEditModal(\\'\' + bookingId + \'\\')">&#9998; Edit</button>\',
+          notifyBtn,
         ].join(\'\')
-      : \'<button class="ap-btn ap-btn-ghost" onclick="openEditModal(\\'\' + bookingId + \'\\')">&#9998; Edit</button>\';
+      : \'<button class="ap-btn ap-btn-ghost" onclick="openEditModal(\\'\' + bookingId + \'\\')">&#9998; Edit</button>\' + notifyBtn;
 
     const shortId = bookingId.substring(0, 8).toUpperCase();
     showModal(
@@ -812,5 +830,26 @@ function renderImageAssessment(assessment) {
     notes ? \'  <div style="color:var(--ap-text-muted);">\' + notes + \'</div>\' : \'\',
     \'</div>\',
   ].join(\'\');
+}
+
+// ── Notify customer of booking change ────────────────────────
+async function calNotifyCustomer(bookingId) {
+  if (!confirm('Send change notification email to customer?')) return;
+  try {
+    await apiFetch('/api/bookings/' + bookingId + '/send-change-notification', { method: 'POST' });
+    showToast('Change notification sent to customer.', 'success');
+    // Remove from changed set if calendar tracks it
+    if (typeof CAL_STATE !== 'undefined' && CAL_STATE.changedBookings) {
+      CAL_STATE.changedBookings.delete(bookingId);
+    }
+    // Refresh the detail modal
+    openBookingDetail(bookingId);
+    // Refresh calendar if visible
+    if (typeof initCalendar === 'function' && document.getElementById('section-calendar')?.style.display !== 'none') {
+      initCalendar();
+    }
+  } catch (err) {
+    showToast('Failed to send notification: ' + err.message, 'error');
+  }
 }
 """
