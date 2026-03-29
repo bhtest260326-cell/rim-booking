@@ -426,10 +426,10 @@ function escHtml(str) {
 
 function wireKpiClicks() {
   const map = {
-    'kpi-pending': function() { navigateTo('bookings'); setTimeout(function() { filterBookings('pending'); }, 100); },
-    'kpi-today':   function() { navigateTo('bookings'); setTimeout(function() { filterBookings('confirmed'); }, 100); },
-    'kpi-week':    function() { navigateTo('bookings'); setTimeout(function() { filterBookings('confirmed'); }, 100); },
-    'kpi-total':   function() { navigateTo('bookings'); setTimeout(function() { filterBookings('confirmed'); }, 100); },
+    'kpi-pending': function() { showSection('bookings'); setTimeout(function() { filterBookings('awaiting_owner'); }, 300); },
+    'kpi-today':   function() { showSection('bookings'); setTimeout(function() { filterBookings('confirmed'); }, 300); },
+    'kpi-week':    function() { showSection('bookings'); setTimeout(function() { filterBookings('confirmed'); }, 300); },
+    'kpi-total':   function() { showSection('bookings'); setTimeout(function() { filterBookings('all'); }, 300); },
   };
   Object.entries(map).forEach(function(entry) {
     var id = entry[0], fn = entry[1];

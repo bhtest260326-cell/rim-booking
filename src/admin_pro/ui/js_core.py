@@ -242,8 +242,8 @@ function showModal(title, bodyHtml, footerHtml = '') {
   if (!overlay) return;
 
   document.getElementById('ap-modal-title').textContent = title;
-  document.getElementById('ap-modal-body').innerHTML  = sanitizeHtml(bodyHtml);
-  document.getElementById('ap-modal-footer').innerHTML = sanitizeHtml(footerHtml);
+  document.getElementById('ap-modal-body').innerHTML  = bodyHtml;
+  document.getElementById('ap-modal-footer').innerHTML = footerHtml;
 
   overlay.style.display = 'flex';
   // Force reflow before adding .open so the CSS opacity transition fires
