@@ -452,9 +452,13 @@ function renderCalendar() {
     html += '<div class="cal-day-col' + (isToday ? ' cal-day-today' : '') + '">';
 
     // Day header — clickable to open day detail
-    html += '<div class="cal-day-header' + (isToday ? ' cal-header-today' : '') + '" ';
-    html += 'onclick="selectCalendarDay(\\'' + dateStr + '\\')">';
-    html += '<span class="cal-day-label">' + label + '</span>';
+    var dayBookings = CAL_STATE.bookingsByDate[dateStr] || [];
+    var confirmedCount = dayBookings.filter(function(b) { return b.status === 'confirmed'; }).length;
+    html += '<div class="cal-day-header' + (isToday ? ' cal-header-today' : '') + '" style="display:flex;align-items:center;justify-content:space-between">';
+    html += '<span class="cal-day-label" style="cursor:pointer" onclick="selectCalendarDay(\\'' + dateStr + '\\')">' + label + '</span>';
+    if (confirmedCount >= 1) {
+      html += '<button class="cal-route-btn" onclick="event.stopPropagation();openRouteMap(\\'' + dateStr + '\\')" title="View route for this day" style="font-size:10px;padding:1px 6px;border:1px solid var(--ap-border,#d1d5db);border-radius:4px;background:transparent;cursor:pointer;color:var(--ap-text-muted,#64748b);line-height:1.6">&#128506; Route</button>';
+    }
     html += '</div>';
 
     // Day body (time slots)

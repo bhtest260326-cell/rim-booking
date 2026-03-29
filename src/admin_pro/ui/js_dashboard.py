@@ -96,6 +96,13 @@ async function initDashboard() {
     showSectionError('dashboard-system-status', 'Could not load system status');
   }
 
+  // Today's route card
+  try {
+    if (typeof initRouteCard === 'function') initRouteCard();
+  } catch (err) {
+    console.error('Dashboard route card error:', err);
+  }
+
   // Auto-refresh every 30 seconds
   setAutoRefresh('dashboard', 30000);
 

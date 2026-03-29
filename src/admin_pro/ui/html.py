@@ -248,6 +248,16 @@ HTML_SECTIONS = """
     </div>
   </div>
 
+  <div class="ap-card" style="margin-bottom:20px">
+    <div class="ap-card-header">
+      <span class="ap-card-title">Today's Route</span>
+      <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="openRouteMap()">View Map</button>
+    </div>
+    <div id="route-card-content">
+      <div style="color:var(--ap-text-muted,#64748b);font-size:13px;text-align:center;padding:12px 0">Loading route info...</div>
+    </div>
+  </div>
+
   <div class="ap-grid-3 ap-system-status-row">
     <div class="ap-card ap-status-card">
       <div class="ap-card-header"><span class="ap-card-title">Gmail</span></div>

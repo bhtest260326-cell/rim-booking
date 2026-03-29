@@ -15,6 +15,7 @@ def _build_html():
     from .js_system import JS_SYSTEM
     from .js_activity import JS_ACTIVITY
     from .js_customers import JS_CUSTOMERS
+    from .js_route import JS_ROUTE
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -56,6 +57,7 @@ if ('serviceWorker' in navigator) {{
 {JS_SYSTEM}
 {JS_ACTIVITY}
 {JS_CUSTOMERS}
+{JS_ROUTE}
 </script>
 </body>
 </html>"""
@@ -95,11 +97,11 @@ def register(bp, require_auth):
         resp.headers['X-Content-Type-Options'] = 'nosniff'
         resp.headers['Content-Security-Policy'] = (
             "default-src 'self'; "
-            "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+            "script-src 'self' https://cdn.jsdelivr.net https://maps.googleapis.com 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: blob:; "
-            "font-src 'self' data:; "
-            "connect-src 'self'; "
+            "img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com; "
+            "font-src 'self' data: https://fonts.gstatic.com; "
+            "connect-src 'self' https://maps.googleapis.com; "
             "frame-ancestors 'none'"
         )
         import os as _os
