@@ -521,6 +521,14 @@ async function openBookingDetail(bookingId) {
 
       renderImageAssessment(bd.image_assessment),
 
+      // ── Photos ──
+      \'<div class="ap-bd-sep"></div>\',
+      \'<div class="ap-detail-heading" style="display:flex;align-items:center;justify-content:space-between">\',
+      \'  <span>Photos</span>\',
+      \'  <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="openPhotoUpload(\\\'\'  + bookingId + \'\\\')">+ Upload</button>\',
+      \'</div>\',
+      \'<div id="photo-gallery-\' + bookingId + \'" class="ap-photo-gallery"><span class="ap-muted">Loading photos...</span></div>\',
+
       // ── Pending Change Notification ──
       (bd.moved_pending_notification ? [
         \'<div class="ap-bd-sep"></div>\',
@@ -561,6 +569,9 @@ async function openBookingDetail(bookingId) {
       body,
       footer
     );
+
+    // Load photo gallery after modal is rendered
+    loadPhotoGallery(bookingId);
 
   } catch (err) {
     showModal(\'Error\', \'<p class="ap-text--error">Failed to load booking: \' + escapeHtml(err.message) + \'</p>\', \'\');
@@ -858,6 +869,145 @@ async function calNotifyCustomer(bookingId) {
     }
   } catch (err) {
     showToast('Failed to send notification: ' + err.message, 'error');
+  }
+}
+
+// ── Photo gallery helpers ───────────────────────────────────
+async function loadPhotoGallery(bookingId) {
+  var container = document.getElementById('photo-gallery-' + bookingId);
+  if (!container) return;
+  try {
+    var result = await apiFetch('/api/bookings/' + bookingId + '/photos');
+    var photos = (result.photos || []);
+    if (photos.length === 0) {
+      container.innerHTML = '<span class="ap-muted" style="font-size:13px">No photos yet.</span>';
+      return;
+    }
+    var beforePhotos = photos.filter(function(p) { return p.photo_type === 'before'; });
+    var afterPhotos  = photos.filter(function(p) { return p.photo_type === 'after'; });
+
+    function renderGroup(label, items) {
+      if (items.length === 0) return '';
+      var thumbs = items.map(function(p) {
+        return (
+          '<div class="ap-photo-thumb" onclick="openPhotoLightbox(' + p.id + ', \\'' + bookingId + '\\')">' +
+          '  <img src="' + BASE_URL + '/api/photos/' + p.id + '" alt="' + escapeHtml(p.filename) + '">' +
+          '  <div class="ap-photo-overlay">' +
+          '    <span class="ap-photo-type-badge ap-photo-type-' + escapeHtml(p.photo_type) + '">' + escapeHtml(p.photo_type) + '</span>' +
+          '    <button class="ap-photo-delete-btn" onclick="event.stopPropagation();deletePhoto(' + p.id + ',\\'' + bookingId + '\\')" title="Delete">&times;</button>' +
+          '  </div>' +
+          '</div>'
+        );
+      }).join('');
+      return '<div class="ap-photo-group-label">' + escapeHtml(label) + '</div><div class="ap-photo-row">' + thumbs + '</div>';
+    }
+
+    container.innerHTML = renderGroup('Before', beforePhotos) + renderGroup('After', afterPhotos);
+  } catch (err) {
+    container.innerHTML = '<span class="ap-text--error" style="font-size:13px">Failed to load photos.</span>';
+  }
+}
+
+function openPhotoUpload(bookingId) {
+  var body = [
+    '<div class="ap-photo-upload-area">',
+    '  <div class="ap-dropzone" id="photo-dropzone"',
+    '       ondragover="event.preventDefault();this.classList.add(\\'ap-dropzone--hover\\')"',
+    '       ondragleave="this.classList.remove(\\'ap-dropzone--hover\\')"',
+    '       ondrop="handlePhotoDrop(event, \\'' + bookingId + '\\')"',
+    '       onclick="document.getElementById(\\'photo-file-input\\').click()">',
+    '    <div style="font-size:28px;margin-bottom:8px;opacity:.5">&#128247;</div>',
+    '    <div>Drag & drop photo here or click to browse</div>',
+    '    <div class="ap-muted" style="font-size:12px;margin-top:4px">JPEG, PNG, or WebP — max 10 MB</div>',
+    '  </div>',
+    '  <input type="file" id="photo-file-input" accept="image/jpeg,image/png,image/webp" style="display:none"',
+    '         onchange="handlePhotoSelect(this.files, \\'' + bookingId + '\\')"  multiple>',
+    '  <div class="ap-form-group" style="margin-top:12px">',
+    '    <label class="ap-label">Photo Type</label>',
+    '    <select class="ap-input" id="photo-type-select">',
+    '      <option value="before">Before</option>',
+    '      <option value="after">After</option>',
+    '    </select>',
+    '  </div>',
+    '  <div class="ap-form-group">',
+    '    <label class="ap-label">Notes (optional)</label>',
+    '    <input type="text" class="ap-input" id="photo-notes" placeholder="Optional notes...">',
+    '  </div>',
+    '  <div id="photo-upload-progress" style="margin-top:8px"></div>',
+    '</div>',
+  ].join('');
+
+  showModal('Upload Photos — Booking ' + bookingId.substring(0, 8), body,
+    '<button class="ap-btn ap-btn-ghost" onclick="closeModal();openBookingDetail(\\'' + bookingId + '\\')">Done</button>'
+  );
+}
+
+function handlePhotoDrop(event, bookingId) {
+  event.preventDefault();
+  var dz = document.getElementById('photo-dropzone');
+  if (dz) dz.classList.remove('ap-dropzone--hover');
+  if (event.dataTransfer && event.dataTransfer.files) {
+    handlePhotoSelect(event.dataTransfer.files, bookingId);
+  }
+}
+
+async function handlePhotoSelect(files, bookingId) {
+  if (!files || files.length === 0) return;
+  var photoType = (document.getElementById('photo-type-select') || {}).value || 'before';
+  var notes     = (document.getElementById('photo-notes') || {}).value || '';
+  var progress  = document.getElementById('photo-upload-progress');
+
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    if (progress) progress.innerHTML = '<span class="ap-muted">Uploading ' + escapeHtml(file.name) + '...</span>';
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('photo_type', photoType);
+    if (notes) fd.append('notes', notes);
+
+    try {
+      var resp = await fetch(BASE_URL + '/api/bookings/' + bookingId + '/photos', {
+        method: 'POST',
+        body: fd,
+        credentials: 'include',
+      });
+      var json = await resp.json();
+      if (!json.ok) throw new Error(json.error || 'Upload failed');
+      if (progress) progress.innerHTML = '<span style="color:var(--ap-green)">Uploaded ' + escapeHtml(file.name) + '</span>';
+    } catch (err) {
+      if (progress) progress.innerHTML = '<span class="ap-text--error">Failed: ' + escapeHtml(err.message) + '</span>';
+      showToast('Upload failed: ' + err.message, 'error');
+    }
+  }
+  // Clear file input
+  var inp = document.getElementById('photo-file-input');
+  if (inp) inp.value = '';
+}
+
+function openPhotoLightbox(photoId, bookingId) {
+  var overlay = document.createElement('div');
+  overlay.className = 'ap-lightbox-overlay';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = [
+    '<div class="ap-lightbox-content">',
+    '  <img src="' + BASE_URL + '/api/photos/' + photoId + '" class="ap-lightbox-img">',
+    '  <div class="ap-lightbox-actions">',
+    '    <button class="ap-btn ap-btn-danger ap-btn-sm" onclick="event.stopPropagation();deletePhoto(' + photoId + ',\\'' + bookingId + '\\');this.closest(\\'.ap-lightbox-overlay\\').remove()">Delete</button>',
+    '    <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="this.closest(\\'.ap-lightbox-overlay\\').remove()">Close</button>',
+    '  </div>',
+    '</div>',
+  ].join('');
+  document.body.appendChild(overlay);
+}
+
+async function deletePhoto(photoId, bookingId) {
+  if (!confirm('Delete this photo?')) return;
+  try {
+    await apiFetch('/api/photos/' + photoId, { method: 'DELETE' });
+    showToast('Photo deleted.', 'info');
+    loadPhotoGallery(bookingId);
+  } catch (err) {
+    showToast('Delete failed: ' + err.message, 'error');
   }
 }
 """
