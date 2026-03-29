@@ -173,23 +173,24 @@ def register(bp, require_auth):
     def comms_waitlist():
         try:
             from state_manager import _get_conn
+            import json as _json
 
             with _get_conn() as conn:
                 rows = conn.execute(
                     "SELECT * FROM waitlist ORDER BY created_at DESC"
                 ).fetchall()
 
-            waitlist = [
-                {
-                    "id": row["id"],
-                    "customer_email": row["customer_email"],
-                    "customer_name": row["customer_name"],
-                    "requested_date": row["requested_date"],
-                    "notified": row["notified"],
-                    "created_at": row["created_at"],
-                }
-                for row in rows
-            ]
+            waitlist = []
+            for row in rows:
+                entry = dict(row)
+                # Parse preferred_dates JSON
+                raw_dates = entry.get('preferred_dates')
+                if raw_dates and isinstance(raw_dates, str):
+                    try:
+                        entry['preferred_dates'] = _json.loads(raw_dates)
+                    except (ValueError, TypeError):
+                        entry['preferred_dates'] = []
+                waitlist.append(entry)
             return jsonify({"waitlist": waitlist})
         except Exception:
             logger.exception("comms_waitlist error")
@@ -202,13 +203,9 @@ def register(bp, require_auth):
     @require_auth
     def comms_waitlist_notify(waitlist_id):
         try:
-            from state_manager import _get_conn
-
-            with _get_conn() as conn:
-                conn.execute(
-                    "UPDATE waitlist SET notified=1 WHERE id=?",
-                    (waitlist_id,),
-                )
+            from state_manager import StateManager
+            state = StateManager()
+            state.update_waitlist_status(waitlist_id, 'offered')
             return jsonify({"ok": True})
         except Exception:
             logger.exception("comms_waitlist_notify error for id %s", waitlist_id)

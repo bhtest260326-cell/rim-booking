@@ -178,6 +178,41 @@ def _handle_customer_sms(from_number, body_text, message_sid, state, media_items
             except Exception as e:
                 logger.warning('_handle_customer_sms: error parsing booking row: %s', e)
 
+        # --- Waitlist offer acceptance ---
+        upper_text = body_text.strip().upper()
+        if upper_text in ('YES', 'NO') and not matched_booking_id:
+            # Check if this phone number has a pending waitlist offer
+            try:
+                from state_manager import _get_conn
+                import json as _wj
+                with _get_conn() as _wconn:
+                    wl_rows = _wconn.execute(
+                        "SELECT * FROM waitlist WHERE customer_phone IS NOT NULL AND status='offered' ORDER BY updated_at DESC"
+                    ).fetchall()
+                wl_entry = None
+                for wr in wl_rows:
+                    stored = normalise_phone(wr['customer_phone'] or '')
+                    if stored and stored == normalised:
+                        wl_entry = dict(wr)
+                        break
+
+                if wl_entry:
+                    if upper_text == 'YES':
+                        # Accept: create a booking from waitlist entry
+                        _accept_waitlist_offer(wl_entry, state, from_number)
+                        state.mark_sms_processed(message_sid)
+                        return
+                    else:
+                        # Decline: move back to expired so next person gets offered
+                        state.update_waitlist_status(wl_entry['id'], 'expired')
+                        send_sms(from_number,
+                            f"No worries! We've kept you on record. "
+                            f"We'll be in touch if another slot opens up. - Wheel Doctor")
+                        state.mark_sms_processed(message_sid)
+                        return
+            except Exception as _wl_err:
+                logger.error(f"Waitlist SMS acceptance check failed: {_wl_err}", exc_info=True)
+
         if matched_booking_id:
             # --- MMS Image Analysis ---
             image_assessment = None
@@ -548,6 +583,70 @@ def handle_owner_decline(pending_id, pending):
             details={'customer_notified': bool(customer_phone or customer_email)})
     except Exception as e:
         logger.warning(f"Could not log decline event for {pending_id}: {e}")
+
+def _accept_waitlist_offer(wl_entry, state, from_number):
+    """Accept a waitlist offer: create a booking and notify the customer + owner."""
+    import json as _j
+    import uuid
+
+    customer_name = wl_entry.get('customer_name') or 'Customer'
+    customer_email = wl_entry.get('customer_email')
+    customer_phone = wl_entry.get('customer_phone')
+
+    # Determine the date from preferred_dates
+    preferred_date = None
+    dates_raw = wl_entry.get('preferred_dates')
+    if dates_raw:
+        try:
+            dates_list = _j.loads(dates_raw) if isinstance(dates_raw, str) else dates_raw
+            if dates_list:
+                preferred_date = dates_list[0]
+        except (ValueError, TypeError):
+            pass
+
+    booking_data = {
+        'customer_name': customer_name,
+        'customer_email': customer_email,
+        'customer_phone': customer_phone,
+        'service_type': wl_entry.get('service_type') or 'Rim Repair',
+        'num_rims': wl_entry.get('rim_count', 1),
+        'preferred_date': preferred_date,
+        'suburb': wl_entry.get('preferred_suburb'),
+        'notes': f"Booked via waitlist (entry #{wl_entry['id']}). {wl_entry.get('notes') or ''}".strip(),
+    }
+
+    booking_id = state.create_pending_booking(
+        booking_data=booking_data,
+        customer_email=customer_email,
+        source='waitlist',
+    )
+
+    # Mark waitlist entry as booked
+    state.update_waitlist_status(wl_entry['id'], 'booked', offered_booking_id=booking_id)
+
+    # Notify customer
+    first_name = customer_name.split()[0]
+    date_display = _fmt_date(preferred_date) if preferred_date else 'your preferred date'
+    send_sms(from_number,
+        f"Hi {first_name}, your booking is confirmed for {date_display}! "
+        f"We'll send full details shortly. - Wheel Doctor")
+
+    # Notify owner of new waitlist booking
+    try:
+        send_sms(os.environ['OWNER_MOBILE'],
+            f"Waitlist booking accepted: {customer_name} for {date_display}. "
+            f"Booking ID: {booking_id}")
+    except Exception as e:
+        logger.error(f"Could not notify owner of waitlist acceptance: {e}")
+
+    # Send owner confirmation request so they can confirm/decline via normal flow
+    try:
+        send_owner_confirmation_request(booking_id, booking_data)
+    except Exception as e:
+        logger.error(f"Could not send owner confirmation for waitlist booking {booking_id}: {e}")
+
+    logger.info(f"Waitlist offer accepted by {customer_phone} — booking {booking_id} created")
+
 
 def handle_owner_day_cancellation(date_str: str, reason: str) -> None:
     """Cancel all confirmed bookings for a date and notify customers to rebook.

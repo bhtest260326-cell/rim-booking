@@ -69,6 +69,13 @@ HTML_SIDEBAR = """
       <span>Customers</span>
     </button>
 
+    <button class="ap-nav-item" data-section="waitlist" onclick="showSection('waitlist')">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Waitlist</span>
+    </button>
+
     <div class="ap-nav-section-label">ANALYTICS</div>
 
     <button class="ap-nav-item" data-section="analytics" onclick="showSection('analytics')">
@@ -324,6 +331,18 @@ HTML_SECTIONS = """
   </div>
 </section>
 
+<!-- ═══════════════════════════════════════════════ WAITLIST ══ -->
+<section class="ap-section" id="section-waitlist" style="display:none;">
+  <div class="ap-card">
+    <div class="ap-card-header">
+      <span class="ap-card-title">Waitlist</span>
+    </div>
+    <div id="waitlist-container">
+      <div class="ap-table-empty" style="padding:32px;text-align:center;">Loading waitlist...</div>
+    </div>
+  </div>
+</section>
+
 <!-- ═══════════════════════════════════════════════ ANALYTICS ══ -->
 <section class="ap-section" id="section-analytics">
   <div class="ap-grid-4 ap-kpi-row">
@@ -526,7 +545,7 @@ HTML_SECTIONS = """
       <div class="ap-table-wrap">
         <table class="ap-table" id="waitlist-table">
           <thead>
-            <tr><th>Customer</th><th>Requested Date</th><th>Service</th><th>Rims</th><th>Added</th><th>Actions</th></tr>
+            <tr><th>Customer</th><th>Preferred Dates</th><th>Suburb</th><th>Rims</th><th>Added</th><th>Status / Actions</th></tr>
           </thead>
           <tbody id="waitlist-tbody">
             <tr><td colspan="6" class="ap-table-empty">Loading waitlist…</td></tr>

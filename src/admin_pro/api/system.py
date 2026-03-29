@@ -253,13 +253,23 @@ def register(bp, require_auth):
     @require_auth
     def get_waitlist():
         try:
+            import json as _json
             conn = sqlite3.connect(DB_PATH, timeout=5)
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 'SELECT * FROM waitlist ORDER BY created_at DESC'
             ).fetchall()
             conn.close()
-            entries = [dict(row) for row in rows]
+            entries = []
+            for row in rows:
+                entry = dict(row)
+                raw_dates = entry.get('preferred_dates')
+                if raw_dates and isinstance(raw_dates, str):
+                    try:
+                        entry['preferred_dates'] = _json.loads(raw_dates)
+                    except (ValueError, TypeError):
+                        entry['preferred_dates'] = []
+                entries.append(entry)
             return jsonify({'waitlist': entries, 'total': len(entries)})
         except Exception:
             logger.exception('get_waitlist error')

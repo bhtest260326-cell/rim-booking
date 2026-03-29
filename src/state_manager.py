@@ -115,18 +115,23 @@ def _ensure_schema(conn):
         CREATE INDEX IF NOT EXISTS idx_svc_history_12m ON customer_service_history(next_reminder_12m, reminder_12m_sent);
 
         CREATE TABLE IF NOT EXISTS waitlist (
-            id          TEXT PRIMARY KEY,
-            customer_email TEXT NOT NULL,
-            customer_name  TEXT,
-            customer_phone TEXT,
-            requested_date TEXT NOT NULL,
-            booking_data   TEXT NOT NULL,
-            gmail_msg_id   TEXT,
-            thread_id      TEXT,
-            created_at     TEXT NOT NULL,
-            notified       INTEGER DEFAULT 0
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_name   TEXT NOT NULL,
+            customer_email  TEXT,
+            customer_phone  TEXT,
+            service_type    TEXT,
+            preferred_dates TEXT,
+            preferred_suburb TEXT,
+            rim_count       INTEGER DEFAULT 1,
+            notes           TEXT,
+            status          TEXT DEFAULT 'waiting',
+            offered_booking_id TEXT,
+            offer_expires_at TEXT,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE INDEX IF NOT EXISTS idx_waitlist_date ON waitlist(requested_date, notified);
+        CREATE INDEX IF NOT EXISTS idx_waitlist_status ON waitlist(status);
+        CREATE INDEX IF NOT EXISTS idx_waitlist_dates  ON waitlist(preferred_dates);
 
         CREATE TABLE IF NOT EXISTS message_queue (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,6 +159,16 @@ def _ensure_schema(conn):
         "ALTER TABLE bookings ADD COLUMN confirmed_at TEXT",
         "ALTER TABLE bookings ADD COLUMN declined_at TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_svc_history_booking ON customer_service_history(booking_id)",
+        # Waitlist table migration — add new columns for auto-scheduling
+        "ALTER TABLE waitlist ADD COLUMN service_type TEXT",
+        "ALTER TABLE waitlist ADD COLUMN preferred_dates TEXT",
+        "ALTER TABLE waitlist ADD COLUMN preferred_suburb TEXT",
+        "ALTER TABLE waitlist ADD COLUMN rim_count INTEGER DEFAULT 1",
+        "ALTER TABLE waitlist ADD COLUMN notes TEXT",
+        "ALTER TABLE waitlist ADD COLUMN status TEXT DEFAULT 'waiting'",
+        "ALTER TABLE waitlist ADD COLUMN offered_booking_id TEXT",
+        "ALTER TABLE waitlist ADD COLUMN offer_expires_at TEXT",
+        "ALTER TABLE waitlist ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP",
     ]
     for sql in _migrations:
         try:
@@ -929,39 +944,153 @@ class StateManager:
         return bookings
 
     # ------------------------------------------------------------------
-    # Waitlist
+    # Waitlist — auto-scheduling
     # ------------------------------------------------------------------
 
-    def add_to_waitlist(self, customer_email, customer_name, customer_phone,
-                        requested_date, booking_data_dict, gmail_msg_id=None, thread_id=None):
-        """Add a customer to the waitlist for a specific date."""
-        import uuid, json as _j
-        wid = str(uuid.uuid4())[:8]
-        now = datetime.utcnow().isoformat()
-        with self._conn() as conn:
-            conn.execute("""
-                INSERT OR IGNORE INTO waitlist
-                (id, customer_email, customer_name, customer_phone,
-                 requested_date, booking_data, gmail_msg_id, thread_id, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?)
-            """, (wid, customer_email, customer_name, customer_phone,
-                  requested_date, _j.dumps(booking_data_dict),
-                  gmail_msg_id, thread_id, now))
-        return wid
+    def add_to_waitlist(self, customer_name, customer_email=None,
+                        customer_phone=None, service_type=None,
+                        preferred_dates=None, preferred_suburb=None,
+                        rim_count=1, notes=None):
+        """Add a customer to the waitlist. Returns the new waitlist entry id."""
+        import json as _j
+        now = datetime.now(timezone.utc).isoformat()
+        dates_json = _j.dumps(preferred_dates) if preferred_dates else None
+        with _get_conn() as conn:
+            cur = conn.execute("""
+                INSERT INTO waitlist
+                (customer_name, customer_email, customer_phone, service_type,
+                 preferred_dates, preferred_suburb, rim_count, notes,
+                 status, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,'waiting',?,?)
+            """, (customer_name, customer_email, customer_phone, service_type,
+                  dates_json, preferred_suburb, rim_count, notes, now, now))
+            conn.commit()
+            return cur.lastrowid
 
-    def get_waitlist_for_date(self, date_str):
-        """Return all unnotified waitlist entries for a date."""
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM waitlist WHERE requested_date=? AND notified=0 ORDER BY created_at",
-                (date_str,)
-            ).fetchall()
+    def get_waitlist(self, status='waiting'):
+        """Get all waitlist entries, optionally filtered by status."""
+        with _get_conn() as conn:
+            if status and status != 'all':
+                rows = conn.execute(
+                    "SELECT * FROM waitlist WHERE status=? ORDER BY created_at DESC",
+                    (status,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM waitlist ORDER BY created_at DESC"
+                ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_waitlist_entry(self, waitlist_id):
+        """Get a single waitlist entry by id."""
+        with _get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM waitlist WHERE id=?", (waitlist_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_waitlist_matches(self, date, suburb=None):
+        """Find waitlist entries matching a cancelled slot (same date range, optionally same area).
+
+        Searches preferred_dates JSON array for entries containing the given date.
+        """
+        import json as _j
+        with _get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM waitlist WHERE status='waiting' ORDER BY created_at ASC"
+            ).fetchall()
+        matches = []
+        for row in rows:
+            entry = dict(row)
+            dates_raw = entry.get('preferred_dates')
+            if dates_raw:
+                try:
+                    dates_list = _j.loads(dates_raw)
+                except (ValueError, TypeError):
+                    dates_list = []
+                if date not in dates_list:
+                    continue
+            # If no preferred_dates set, match any date
+            if suburb and entry.get('preferred_suburb'):
+                if entry['preferred_suburb'].lower() != suburb.lower():
+                    continue
+            matches.append(entry)
+        return matches
+
+    def update_waitlist_status(self, waitlist_id, status, offered_booking_id=None):
+        """Update the status of a waitlist entry."""
+        now = datetime.now(timezone.utc).isoformat()
+        with _get_conn() as conn:
+            if status == 'offered':
+                # Set 24h expiry when offering
+                expires = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+                conn.execute(
+                    """UPDATE waitlist SET status=?, offered_booking_id=?,
+                       offer_expires_at=?, updated_at=? WHERE id=?""",
+                    (status, offered_booking_id, expires, now, waitlist_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE waitlist SET status=?, offered_booking_id=?, updated_at=? WHERE id=?",
+                    (status, offered_booking_id, now, waitlist_id)
+                )
+            conn.commit()
+
+    def update_waitlist_entry(self, waitlist_id, **kwargs):
+        """Update fields on a waitlist entry. Only specified kwargs are updated."""
+        import json as _j
+        allowed = {'customer_name', 'customer_email', 'customer_phone',
+                    'service_type', 'preferred_dates', 'preferred_suburb',
+                    'rim_count', 'notes', 'status'}
+        sets = []
+        params = []
+        for k, v in kwargs.items():
+            if k not in allowed:
+                continue
+            if k == 'preferred_dates' and isinstance(v, list):
+                v = _j.dumps(v)
+            sets.append(f"{k}=?")
+            params.append(v)
+        if not sets:
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        sets.append("updated_at=?")
+        params.append(now)
+        params.append(waitlist_id)
+        with _get_conn() as conn:
+            conn.execute(
+                f"UPDATE waitlist SET {', '.join(sets)} WHERE id=?", params
+            )
+            conn.commit()
+        return True
+
+    def delete_waitlist_entry(self, waitlist_id):
+        """Remove a waitlist entry."""
+        with _get_conn() as conn:
+            conn.execute("DELETE FROM waitlist WHERE id=?", (waitlist_id,))
+            conn.commit()
+
+    def expire_waitlist_offers(self):
+        """Move expired 'offered' entries back to 'waiting'. Returns count expired."""
+        now = datetime.now(timezone.utc).isoformat()
+        with _get_conn() as conn:
+            cur = conn.execute(
+                """UPDATE waitlist SET status='expired', updated_at=?
+                   WHERE status='offered' AND offer_expires_at IS NOT NULL
+                   AND offer_expires_at < ?""",
+                (now, now)
+            )
+            conn.commit()
+            return cur.rowcount
+
+    # Legacy compatibility wrappers
+    def get_waitlist_for_date(self, date_str):
+        """Return all waiting waitlist entries for a date (legacy compat)."""
+        return self.get_waitlist_matches(date_str)
+
     def mark_waitlist_notified(self, waitlist_id):
-        """Mark a waitlist entry as notified."""
-        with self._conn() as conn:
-            conn.execute("UPDATE waitlist SET notified=1 WHERE id=?", (waitlist_id,))
+        """Mark a waitlist entry as offered (legacy compat)."""
+        self.update_waitlist_status(waitlist_id, 'offered')
 
     # ------------------------------------------------------------------
     # Internal conversion

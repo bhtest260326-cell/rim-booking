@@ -989,13 +989,14 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
             if preferred_date:
                 try:
                     wid = state.add_to_waitlist(
+                        customer_name=booking_data.get('customer_name') or 'Unknown',
                         customer_email=customer_email,
-                        customer_name=booking_data.get('customer_name'),
                         customer_phone=booking_data.get('customer_phone'),
-                        requested_date=preferred_date,
-                        booking_data_dict=booking_data,
-                        gmail_msg_id=msg_id,
-                        thread_id=thread_id
+                        service_type=booking_data.get('service_type'),
+                        preferred_dates=[preferred_date],
+                        preferred_suburb=booking_data.get('suburb'),
+                        rim_count=booking_data.get('num_rims', 1),
+                        notes=f"Auto-enrolled from date-full reply. Thread: {thread_id}"
                     )
                     logger.info(f"Customer {customer_email} added to waitlist for {preferred_date} (waitlist ID: {wid})")
                 except Exception as e:

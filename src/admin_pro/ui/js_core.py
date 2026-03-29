@@ -21,6 +21,7 @@ const SECTION_META = {
   customers: { title: 'Customers',       subtitle: 'Customer profiles and history' },
   system:    { title: 'System',          subtitle: 'Feature flags and system health' },
   activity:  { title: 'Activity Feed',   subtitle: 'Audit log and recent events' },
+  waitlist:  { title: 'Waitlist',        subtitle: 'Manage waitlisted customers' },
 };
 
 // ── Section Init Map ─────────────────────────────────────────
@@ -33,6 +34,7 @@ const SECTION_INIT = {
   customers: () => typeof initCustomers  === 'function' && initCustomers(),
   system:    () => typeof initSystem     === 'function' && initSystem(),
   activity:  () => typeof initActivity   === 'function' && initActivity(),
+  waitlist:  () => typeof initWaitlist   === 'function' && initWaitlist(),
 };
 
 // ── Section Navigation ───────────────────────────────────────

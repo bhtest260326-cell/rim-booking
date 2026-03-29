@@ -840,6 +840,213 @@ function renderImageAssessment(assessment) {
   ].join(\'\');
 }
 
+// ============================================================
+// Waitlist Section
+// ============================================================
+
+const WAITLIST_STATE = {
+  status: 'all',
+  search: '',
+};
+
+async function initWaitlist() {
+  await loadWaitlistEntries();
+}
+
+async function loadWaitlistEntries() {
+  const container = document.getElementById('waitlist-container');
+  if (!container) return;
+
+  const params = new URLSearchParams();
+  if (WAITLIST_STATE.status && WAITLIST_STATE.status !== 'all') {
+    params.set('status', WAITLIST_STATE.status);
+  }
+  if (WAITLIST_STATE.search) params.set('search', WAITLIST_STATE.search);
+
+  try {
+    const data = await apiFetch('/api/waitlist?' + params.toString());
+    const entries = data.data || [];
+    renderWaitlistTable(entries);
+  } catch (err) {
+    container.innerHTML = '<div class="ap-alert ap-alert-error">Failed to load waitlist: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function renderWaitlistTable(entries) {
+  const container = document.getElementById('waitlist-container');
+  if (!container) return;
+
+  const STATUS_BADGE = {
+    waiting: { bg: '#dbeafe', text: '#1e40af', label: 'Waiting' },
+    offered: { bg: '#fef3c7', text: '#92400e', label: 'Offered' },
+    booked:  { bg: '#d1fae5', text: '#065f46', label: 'Booked' },
+    expired: { bg: '#f3f4f6', text: '#6b7280', label: 'Expired' },
+  };
+
+  const statusPills = ['all', 'waiting', 'offered', 'booked', 'expired'].map(function(s) {
+    const active = WAITLIST_STATE.status === s ? ' ap-pill--active' : '';
+    const label = s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1);
+    return '<button class="ap-pill' + active + '" onclick="setWaitlistStatus(\\'' + s + '\\')">' + label + '</button>';
+  }).join('');
+
+  if (!entries.length) {
+    container.innerHTML =
+      '<div class="ap-filter-pills" style="margin-bottom:12px;">' + statusPills + '</div>' +
+      '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">' +
+        '<button class="ap-btn ap-btn-primary ap-btn-sm" onclick="openAddWaitlistModal()">+ Add to Waitlist</button>' +
+      '</div>' +
+      '<div class="ap-table-empty" style="padding:32px;text-align:center;">No waitlist entries found.</div>';
+    return;
+  }
+
+  var rows = entries.map(function(e) {
+    var badge = STATUS_BADGE[e.status] || STATUS_BADGE.waiting;
+    var dates = Array.isArray(e.preferred_dates) ? e.preferred_dates.join(', ') : (e.preferred_dates || '—');
+    var actions = '';
+    if (e.status === 'waiting') {
+      actions = '<button class="ap-btn ap-btn-primary ap-btn-xs" onclick="offerWaitlistSlot(' + e.id + ')">Offer Slot</button> ';
+    }
+    actions += '<button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="editWaitlistEntry(' + e.id + ')">Edit</button> ';
+    actions += '<button class="ap-btn ap-btn-ghost ap-btn-xs" style="color:var(--ap-danger);" onclick="deleteWaitlistEntry(' + e.id + ')">Remove</button>';
+
+    return '<tr>' +
+      '<td>' + escapeHtml(e.customer_name || '—') + '</td>' +
+      '<td>' + escapeHtml(e.customer_email || '—') + '<br><span style="color:var(--ap-text-muted);font-size:0.8rem;">' + escapeHtml(e.customer_phone || '') + '</span></td>' +
+      '<td>' + escapeHtml(e.service_type || '—') + '</td>' +
+      '<td>' + escapeHtml(dates) + '</td>' +
+      '<td>' + escapeHtml(e.preferred_suburb || '—') + '</td>' +
+      '<td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;background:' + badge.bg + ';color:' + badge.text + ';">' + badge.label + '</span></td>' +
+      '<td>' + actions + '</td>' +
+    '</tr>';
+  }).join('');
+
+  container.innerHTML =
+    '<div class="ap-filter-pills" style="margin-bottom:12px;">' + statusPills + '</div>' +
+    '<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">' +
+      '<input type="text" class="ap-input" placeholder="Search waitlist..." value="' + escapeHtml(WAITLIST_STATE.search) + '" oninput="searchWaitlist(this.value)" style="max-width:260px;">' +
+      '<div style="flex:1;"></div>' +
+      '<button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="loadWaitlistEntries()">Refresh</button>' +
+      '<button class="ap-btn ap-btn-primary ap-btn-sm" onclick="openAddWaitlistModal()">+ Add to Waitlist</button>' +
+    '</div>' +
+    '<table class="ap-table"><thead><tr>' +
+      '<th>Name</th><th>Contact</th><th>Service</th><th>Preferred Dates</th><th>Suburb</th><th>Status</th><th>Actions</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function setWaitlistStatus(status) {
+  WAITLIST_STATE.status = status;
+  loadWaitlistEntries();
+}
+
+function searchWaitlist(val) {
+  WAITLIST_STATE.search = val || '';
+  loadWaitlistEntries();
+}
+
+async function offerWaitlistSlot(id) {
+  var date = prompt('Enter the date to offer (YYYY-MM-DD), or leave blank for any preferred date:');
+  if (date === null) return; // cancelled
+  try {
+    var body = {};
+    if (date && date.trim()) body.date = date.trim();
+    await apiFetch('/api/waitlist/' + id + '/offer', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    showToast('Slot offered to customer.', 'success');
+    loadWaitlistEntries();
+  } catch (err) {
+    showToast('Failed to offer slot: ' + err.message, 'error');
+  }
+}
+
+async function deleteWaitlistEntry(id) {
+  if (!confirm('Remove this customer from the waitlist?')) return;
+  try {
+    await apiFetch('/api/waitlist/' + id, { method: 'DELETE' });
+    showToast('Removed from waitlist.', 'success');
+    loadWaitlistEntries();
+  } catch (err) {
+    showToast('Failed to remove: ' + err.message, 'error');
+  }
+}
+
+async function editWaitlistEntry(id) {
+  // Fetch current entry data
+  try {
+    var data = await apiFetch('/api/waitlist?status=all');
+    var entry = (data.data || []).find(function(e) { return e.id === id; });
+    if (!entry) { showToast('Entry not found', 'error'); return; }
+    openEditWaitlistModal(entry);
+  } catch (err) {
+    showToast('Failed to load entry: ' + err.message, 'error');
+  }
+}
+
+function openAddWaitlistModal() {
+  openEditWaitlistModal(null);
+}
+
+function openEditWaitlistModal(entry) {
+  var isNew = !entry;
+  var title = isNew ? 'Add to Waitlist' : 'Edit Waitlist Entry';
+  var e = entry || {};
+  var dates = Array.isArray(e.preferred_dates) ? e.preferred_dates.join(', ') : (e.preferred_dates || '');
+
+  var html = [
+    '<h3 style="margin:0 0 16px;">' + title + '</h3>',
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">',
+    '  <label class="ap-label">Name *<input class="ap-input" id="wl-name" value="' + escapeHtml(e.customer_name || '') + '"></label>',
+    '  <label class="ap-label">Email<input class="ap-input" id="wl-email" value="' + escapeHtml(e.customer_email || '') + '"></label>',
+    '  <label class="ap-label">Phone<input class="ap-input" id="wl-phone" value="' + escapeHtml(e.customer_phone || '') + '"></label>',
+    '  <label class="ap-label">Service Type<input class="ap-input" id="wl-service" value="' + escapeHtml(e.service_type || '') + '"></label>',
+    '  <label class="ap-label">Preferred Dates (comma-separated)<input class="ap-input" id="wl-dates" value="' + escapeHtml(dates) + '"></label>',
+    '  <label class="ap-label">Suburb<input class="ap-input" id="wl-suburb" value="' + escapeHtml(e.preferred_suburb || '') + '"></label>',
+    '  <label class="ap-label">Rim Count<input class="ap-input" type="number" id="wl-rims" value="' + (e.rim_count || 1) + '" min="1" max="10"></label>',
+    '</div>',
+    '<label class="ap-label" style="margin-top:10px;">Notes<textarea class="ap-input" id="wl-notes" rows="2">' + escapeHtml(e.notes || '') + '</textarea></label>',
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">',
+    '  <button class="ap-btn ap-btn-ghost" onclick="closeModal()">Cancel</button>',
+    '  <button class="ap-btn ap-btn-primary" onclick="saveWaitlistEntry(' + (isNew ? 'null' : e.id) + ')">Save</button>',
+    '</div>',
+  ].join('\\n');
+
+  openModal(html);
+}
+
+async function saveWaitlistEntry(id) {
+  var name = document.getElementById('wl-name').value.trim();
+  if (!name) { showToast('Name is required.', 'error'); return; }
+
+  var datesStr = document.getElementById('wl-dates').value.trim();
+  var dates = datesStr ? datesStr.split(',').map(function(d) { return d.trim(); }).filter(Boolean) : [];
+
+  var payload = {
+    customer_name:    name,
+    customer_email:   document.getElementById('wl-email').value.trim() || null,
+    customer_phone:   document.getElementById('wl-phone').value.trim() || null,
+    service_type:     document.getElementById('wl-service').value.trim() || null,
+    preferred_dates:  dates.length ? dates : null,
+    preferred_suburb: document.getElementById('wl-suburb').value.trim() || null,
+    rim_count:        parseInt(document.getElementById('wl-rims').value, 10) || 1,
+    notes:            document.getElementById('wl-notes').value.trim() || null,
+  };
+
+  try {
+    if (id) {
+      await apiFetch('/api/waitlist/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+      showToast('Waitlist entry updated.', 'success');
+    } else {
+      await apiFetch('/api/waitlist', { method: 'POST', body: JSON.stringify(payload) });
+      showToast('Added to waitlist.', 'success');
+    }
+    closeModal();
+    loadWaitlistEntries();
+  } catch (err) {
+    showToast('Save failed: ' + err.message, 'error');
+  }
+}
+
 // ── Notify customer of booking change ────────────────────────
 async function calNotifyCustomer(bookingId) {
   if (!confirm('Send change notification email to customer?')) return;

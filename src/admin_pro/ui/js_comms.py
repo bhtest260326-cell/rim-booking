@@ -216,23 +216,33 @@ async function loadWaitlist() {
       tbody.innerHTML = '<tr><td colspan="6" class="ap-table-empty">Waitlist is empty</td></tr>';
       return;
     }
-    tbody.innerHTML = items.map(w => `
+
+    const STATUS_BADGE = {
+      waiting: '<span class="ap-badge ap-badge-blue">Waiting</span>',
+      offered: '<span class="ap-badge ap-badge-yellow">Offered</span>',
+      booked:  '<span class="ap-badge ap-badge-green">Booked</span>',
+      expired: '<span class="ap-badge ap-badge-grey">Expired</span>',
+    };
+
+    tbody.innerHTML = items.map(w => {
+      const dates = Array.isArray(w.preferred_dates) ? w.preferred_dates.join(', ') : (w.preferred_dates || '—');
+      const badge = STATUS_BADGE[w.status] || STATUS_BADGE.waiting;
+      const actions = w.status === 'waiting'
+        ? `<button class="ap-btn ap-btn-primary ap-btn-xs" data-action="waitlist-notify" data-id="${w.id}">Offer Slot</button>`
+        : badge;
+      return `
       <tr>
         <td>
-          <div>${escapeHtml(w.customer_name || w.customer_email)}</div>
-          <div class="ap-text-muted" style="font-size:12px">${escapeHtml(w.customer_email)}</div>
+          <div>${escapeHtml(w.customer_name || w.customer_email || '—')}</div>
+          <div class="ap-text-muted" style="font-size:12px">${escapeHtml(w.customer_email || '')}</div>
         </td>
-        <td>${escapeHtml(w.requested_date || '—')}</td>
-        <td>${serviceLabel(w.service_type)}</td>
+        <td>${escapeHtml(dates)}</td>
+        <td>${escapeHtml(w.preferred_suburb || '—')}</td>
         <td>${w.rim_count || '—'}</td>
         <td class="ap-text-muted">${relativeTime(w.created_at)}</td>
-        <td>
-          ${!w.notified
-            ? `<button class="ap-btn ap-btn-primary ap-btn-xs" data-action="waitlist-notify" data-id="${w.id}">Notify</button>`
-            : '<span class="ap-badge ap-badge-green">Notified</span>'}
-        </td>
-      </tr>
-    `).join('');
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" class="ap-table-empty ap-text-danger">${escapeHtml(e.message)}</td></tr>`;
   }

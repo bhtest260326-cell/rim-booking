@@ -49,6 +49,7 @@ _TASK_INTERVALS = {
     'backup_database_to_drive':     86400, # daily (also gated by hour)
     'run_db_cleanup':               604800, # weekly (7 days)
     'check_waitlist_opportunities': 3600,  # every hour
+    'expire_waitlist_offers':       600,   # every 10 min
     'drain_message_queue':          60,    # every minute (Upgrade 5)
     'run_daily_health_check':       300,   # every 5 min (idempotent via date key, Upgrade 10)
 }
@@ -183,6 +184,13 @@ def run_scheduled_tasks():
         except Exception as e:
             logger.error(f"check_waitlist_opportunities error: {e}", exc_info=True)
         _mark_ran('check_waitlist_opportunities')
+
+    if _should_run('expire_waitlist_offers'):
+        try:
+            expire_waitlist_offers()
+        except Exception as e:
+            logger.error(f"expire_waitlist_offers error: {e}", exc_info=True)
+        _mark_ran('expire_waitlist_offers')
 
     if _should_run('drain_message_queue'):
         try:
@@ -991,7 +999,8 @@ def check_waitlist_opportunities():
     """Check if any cancelled bookings create openings for waitlisted customers.
 
     Runs hourly. For each date that has waitlisted customers, checks if the date
-    now has available capacity. If so, sends a notification email to waitlisted customers.
+    now has available capacity. If so, offers the slot to the first matching
+    waitlisted customer (SMS + email) and marks them as 'offered' with 24h expiry.
     """
     try:
         from state_manager import StateManager, _get_conn
@@ -1003,55 +1012,110 @@ def check_waitlist_opportunities():
 
         state = StateManager()
 
-        # Find dates with unnotified waitlist entries
-        with _get_conn() as conn:
-            waitlist_dates = conn.execute(
-                """SELECT DISTINCT requested_date FROM waitlist
-                   WHERE notified=0 AND requested_date >= date('now')"""
-            ).fetchall()
+        # Collect all dates from waiting entries' preferred_dates
+        waiting_entries = state.get_waitlist(status='waiting')
+        if not waiting_entries:
+            return
 
-        for row in waitlist_dates:
-            date_str = row[0]
+        # Build a set of all candidate dates
+        candidate_dates = set()
+        for entry in waiting_entries:
+            dates_raw = entry.get('preferred_dates')
+            if dates_raw:
+                try:
+                    dates_list = _json.loads(dates_raw) if isinstance(dates_raw, str) else dates_raw
+                    for d in dates_list:
+                        if d >= datetime.now().strftime('%Y-%m-%d'):
+                            candidate_dates.add(d)
+                except (ValueError, TypeError):
+                    pass
 
+        for date_str in sorted(candidate_dates):
             # Check current availability for this date
             confirmed = state.get_confirmed_bookings_for_date(date_str)
-            # Simple heuristic: if fewer than 4 confirmed bookings, there's space
             if len(confirmed) >= 4:
                 continue
 
-            # Notify all unnotified waitlisted customers for this date
-            waitlist_entries = state.get_waitlist_for_date(date_str)
-            for entry in waitlist_entries:
+            # Find matching waitlist entries for this date
+            matches = state.get_waitlist_matches(date_str)
+            if not matches:
+                continue
+
+            # Offer to the first matching customer only
+            entry = matches[0]
+            customer_name = (entry.get('customer_name') or 'there').split()[0]
+            date_display = _fmt_date(date_str)
+
+            sms_sent = False
+            email_sent = False
+
+            # Send SMS offer
+            customer_phone = entry.get('customer_phone')
+            if customer_phone and get_flag('flag_auto_sms_customer'):
+                try:
+                    msg = (
+                        f"Hi {customer_name}, great news! A spot has opened up on "
+                        f"{date_display} for your rim repair. "
+                        f"Reply YES to confirm or NO to stay on the waitlist. "
+                        f"This offer expires in 24 hours. - Wheel Doctor"
+                    )
+                    send_sms(customer_phone, msg)
+                    sms_sent = True
+                except Exception as e:
+                    logger.error(f"Waitlist offer SMS failed for entry {entry['id']}: {e}")
+
+            # Send email offer
+            customer_email = entry.get('customer_email')
+            if customer_email and get_flag('flag_auto_email_customer'):
                 try:
                     from google_auth import get_gmail_service
-                    from email_utils import send_customer_email, _p, _h2, RED, DARK
+                    from email_utils import send_customer_email, _p, RED, DARK
 
                     service = get_gmail_service()
-                    cust_name = (entry.get('customer_name') or 'there').split()[0]
-
                     content = (
-                        _p(f'Hi {cust_name},')
+                        _p(f'Hi {customer_name},')
                         + _p(f'Great news! A spot has become available on '
-                             f'<strong>{_fmt_date(date_str)}</strong> — a date you previously enquired about.')
-                        + _p('If you\'re still interested in booking, simply reply to this email '
-                             'and we\'ll get you confirmed as soon as possible.')
-                        + _p('Availability is limited, so please reply promptly to secure your spot.')
+                             f'<strong>{date_display}</strong> for your rim repair.')
+                        + _p('If you\'d like to book this slot, simply reply to this email '
+                             'or text <strong>YES</strong> to confirm.')
+                        + _p('This offer is valid for <strong>24 hours</strong>. '
+                             'After that, the slot may be offered to someone else.')
                         + f'<p style="margin:24px 0 0;color:{DARK};font-size:15px;">'
                           f'Kind regards,<br><strong style="color:{RED};">Wheel Doctor Team</strong></p>'
                     )
-
                     send_customer_email(
-                        service, entry['customer_email'],
-                        f'Availability Update — {_fmt_date(date_str)}', content
+                        service, customer_email,
+                        f'Slot Available - {date_display}', content
                     )
-                    state.mark_waitlist_notified(entry['id'])
-                    logger.info(f"Waitlist notification sent to {entry['customer_email']} for {date_str}")
-
+                    email_sent = True
                 except Exception as e:
-                    logger.error(f"Waitlist notification failed for {entry.get('id')}: {e}")
+                    logger.error(f"Waitlist offer email failed for entry {entry['id']}: {e}")
+
+            if sms_sent or email_sent:
+                state.update_waitlist_status(entry['id'], 'offered')
+                logger.info(
+                    f"Waitlist auto-offer sent to {customer_email or customer_phone} "
+                    f"for {date_str} (entry {entry['id']}, sms={sms_sent}, email={email_sent})"
+                )
 
     except Exception as e:
         logger.error(f"check_waitlist_opportunities error: {e}", exc_info=True)
+
+
+def expire_waitlist_offers():
+    """Expire waitlist offers that have passed their 24h window.
+
+    Expired entries are moved to 'expired' status. The next run of
+    check_waitlist_opportunities will find a new match if available.
+    """
+    try:
+        from state_manager import StateManager
+        state = StateManager()
+        expired_count = state.expire_waitlist_offers()
+        if expired_count:
+            logger.info(f"Expired {expired_count} waitlist offer(s)")
+    except Exception as e:
+        logger.error(f"expire_waitlist_offers error: {e}", exc_info=True)
 
 
 def run_db_cleanup():
