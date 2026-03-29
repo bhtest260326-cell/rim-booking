@@ -148,10 +148,53 @@ async function submitSystemCancelDay() {
   }
 }
 
+// ── Database Actions ─────────────────────────────────────────────────────────
+
+async function vacuumDb() {
+  if (!confirm('Run VACUUM on the database?')) return;
+  try {
+    await apiFetch('/api/system/vacuum', {method:'POST'});
+    showToast('Database vacuumed successfully.', 'success');
+  } catch(e) { showToast('Vacuum failed: ' + e.message, 'error'); }
+}
+
+function exportDb() {
+  showToast('Feature coming soon.', 'info');
+}
+
+// ── App State Viewer ─────────────────────────────────────────────────────────
+
+async function loadAppState() {
+  try {
+    const data = await apiFetch('/api/system/app-state');
+    const raw = document.getElementById('app-state-raw');
+    const formatted = document.getElementById('app-state-formatted');
+    if (raw) raw.textContent = JSON.stringify(data, null, 2);
+    if (formatted) formatted.innerHTML = '<pre style="white-space:pre-wrap;word-break:break-word">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+  } catch(e) {
+    showToast('Failed to load app state: ' + e.message, 'error');
+  }
+}
+
+function toggleAppStateRaw() {
+  const raw = document.getElementById('app-state-raw');
+  const formatted = document.getElementById('app-state-formatted');
+  if (!raw || !formatted) return;
+  if (raw.style.display === 'none') {
+    raw.style.display = 'block';
+    formatted.style.display = 'none';
+  } else {
+    raw.style.display = 'none';
+    formatted.style.display = 'block';
+  }
+}
+
 // ── Flag & Toggle Styles ──────────────────────────────────────────────────────
 
 function injectFlagStyles() {
+  if (document.getElementById('ap-flag-styles')) return;
   const style = document.createElement('style');
+  style.id = 'ap-flag-styles';
   style.textContent = `
     .ap-flags-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
     .ap-flag-card { display:flex; justify-content:space-between; align-items:center; padding:16px; background:var(--ap-card); border:1px solid var(--ap-border); border-radius:var(--ap-radius-sm); transition:.2s; }

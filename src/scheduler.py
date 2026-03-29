@@ -46,7 +46,6 @@ _TASK_INTERVALS = {
     'send_owner_daily_briefing':    300,   # every 5 min (idempotent via date key)
     'check_pending_booking_expiry': 600,   # every 10 min
     'backup_database_to_email':     86400, # daily (also gated by date key)
-    'send_morning_email':           300,   # every 5 min
     'run_db_cleanup':               604800, # weekly (7 days)
     'check_waitlist_opportunities': 3600,  # every hour
     'drain_message_queue':          60,    # every minute (Upgrade 5)
@@ -447,7 +446,7 @@ def _time_window(time_str, duration_minutes=120):
         start = datetime.strptime(time_str, "%H:%M")
         end = start + timedelta(minutes=duration_minutes)
         def fmt(dt):
-            return dt.strftime("%-I:%M%p").lower().replace(':00', '')
+            return dt.strftime("%I:%M%p").lstrip('0').lower().replace(':00', '')
         return f"{fmt(start)} – {fmt(end)}"
     except Exception as e:
         logger.warning('Could not format time window for %r: %s', time_str, e)
@@ -656,8 +655,13 @@ def check_pending_booking_expiry():
             f"Reply YES {booking_id} or NO {booking_id}"
         )
 
+        owner_mobile = os.environ.get('OWNER_MOBILE', '')
+        if not owner_mobile:
+            logger.warning("OWNER_MOBILE not configured, skipping expiry nudge SMS")
+            return
+
         try:
-            send_sms(os.environ['OWNER_MOBILE'], msg)
+            send_sms(owner_mobile, msg)
             state.mark_reminder_sent(booking_id, 'expiry_nudge')
             logger.info(f"Expiry nudge sent for booking {booking_id} (age: {age})")
         except Exception as e:
@@ -720,8 +724,13 @@ def send_owner_daily_briefing():
         f"Est. finish ~{finish_time}. - Wheel Doctor"
     )
 
+    owner_mobile = os.environ.get('OWNER_MOBILE', '')
+    if not owner_mobile:
+        logger.warning("OWNER_MOBILE not configured, skipping daily briefing SMS")
+        return
+
     try:
-        send_sms(os.environ['OWNER_MOBILE'], msg)
+        send_sms(owner_mobile, msg)
         state.set_app_state('last_daily_briefing_date', today)
         logger.info(f"Daily briefing sent for {today}: {len(jobs)} job(s)")
     except Exception as e:
@@ -784,6 +793,11 @@ def send_preflight_schedule_report():
         state = StateManager()
         today = now.strftime('%Y-%m-%d')
 
+        owner_mobile = os.environ.get('OWNER_MOBILE', '')
+        if not owner_mobile:
+            logger.warning("OWNER_MOBILE not configured, skipping preflight schedule report SMS")
+            return
+
         last = state.get_app_state('last_preflight_report_date')
         if last == today:
             return
@@ -801,7 +815,7 @@ def send_preflight_schedule_report():
         state.set_app_state('last_preflight_report_date', today)
 
         if not today_jobs:
-            send_sms(os.environ['OWNER_MOBILE'], f"Pre-flight {today}: No jobs scheduled today.")
+            send_sms(owner_mobile, f"Pre-flight {today}: No jobs scheduled today.")
             return
 
         today_jobs.sort(key=lambda x: x[1].get('preferred_time', '09:00'))
@@ -839,7 +853,7 @@ def send_preflight_schedule_report():
         if len(today_jobs) > 5:
             report += f"\n...+{len(today_jobs)-5} more"
 
-        send_sms(os.environ['OWNER_MOBILE'], report)
+        send_sms(owner_mobile, report)
         logger.info(f"Pre-flight report sent for {today}")
     except Exception as e:
         logger.error(f"send_preflight_schedule_report failed: {e}", exc_info=True)

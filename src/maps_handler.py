@@ -4,7 +4,7 @@ import math
 import time
 import datetime as _dt_mod
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import permutations as _perms
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ _WA_PUBLIC_HOLIDAYS: set = {
     # 2028
     _dt_mod.date(2028, 1, 3),   # New Year's Day (observed, 1st is Saturday)
     _dt_mod.date(2028, 1, 26),  # Australia Day
+    _dt_mod.date(2028, 3, 6),   # Labour Day (WA)
     _dt_mod.date(2028, 4, 14),  # Good Friday
     _dt_mod.date(2028, 4, 15),  # Easter Saturday
     _dt_mod.date(2028, 4, 17),  # Easter Monday
@@ -107,6 +108,24 @@ _MATRIX_CACHE_TTL = 1800       # 30 minutes
 _avail_cache: dict = {}
 _avail_cache_ts: dict = {}
 _AVAIL_CACHE_TTL = 300  # 5 minutes
+
+_cache_access_count = 0
+
+def _prune_caches():
+    """Periodically remove expired entries from in-memory caches."""
+    global _cache_access_count
+    _cache_access_count += 1
+    if _cache_access_count % 50 != 0:
+        return
+    now = time.time()
+    expired = [k for k, ts in _matrix_cache_ts.items() if now - ts > _MATRIX_CACHE_TTL]
+    for k in expired:
+        _matrix_cache.pop(k, None)
+        _matrix_cache_ts.pop(k, None)
+    expired = [k for k, ts in _avail_cache_ts.items() if now - ts > _AVAIL_CACHE_TTL]
+    for k in expired:
+        _avail_cache.pop(k, None)
+        _avail_cache_ts.pop(k, None)
 
 # Known out-of-area Western Australian locations (outside Perth metro)
 _OUT_OF_AREA_KEYWORDS = [
@@ -260,6 +279,7 @@ def get_distance_matrix(addresses):
     # Cache key must preserve address order — the returned matrix is position-indexed.
     # sorted() was wrong: ['A','B'] and ['B','A'] would share a cache entry but need different matrices.
     key = tuple(addresses)
+    _prune_caches()
     if key in _matrix_cache and time.time() - _matrix_cache_ts.get(key, 0) < _MATRIX_CACHE_TTL:
         logger.info(f"Distance matrix cache hit ({n} locations)")
         return _matrix_cache[key]
@@ -424,7 +444,7 @@ def find_optimal_route(bookings_for_day, date_str):
 
 def _perth_now_local():
     """Return current datetime in Perth time (UTC+8) without pytz dependency."""
-    return datetime.utcnow() + timedelta(hours=8)
+    return datetime.now(timezone.utc) + timedelta(hours=8)
 
 
 def find_next_available_slot(target_date_str, new_address, day_bookings,
@@ -523,8 +543,9 @@ def find_next_available_slot(target_date_str, new_address, day_bookings,
     next_day = target_date + timedelta(days=1)
     while not _is_business_day(next_day.date()):
         next_day += timedelta(days=1)
+    next_day_start = next_day.replace(hour=BUSINESS_START_HOUR, minute=0, second=0, microsecond=0)
     logger.info(f"No slot available on {target_date_str}, advancing to {next_day.strftime('%Y-%m-%d')}")
-    return next_day.strftime("%Y-%m-%d"), day_start.strftime("%H:%M")
+    return next_day.strftime("%Y-%m-%d"), next_day_start.strftime("%H:%M")
 
 
 def get_week_availability(duration_minutes: int, from_date_str: str = None,
@@ -556,6 +577,7 @@ def get_week_availability(duration_minutes: int, from_date_str: str = None,
     """
     import time as _t
     _avail_key = (duration_minutes, from_date_str or 'today')
+    _prune_caches()
     if _avail_key in _avail_cache:
         if _t.time() - _avail_cache_ts.get(_avail_key, 0) < _AVAIL_CACHE_TTL:
             logger.debug(f"Availability cache hit for {_avail_key}")

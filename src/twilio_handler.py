@@ -43,15 +43,17 @@ def normalise_phone(number):
     return number
 
 _sms_limit_alerted_date = None  # prevent repeated alerts on the same day
+_sms_limit_lock = threading.Lock()
 
 def _alert_owner_sms_limit():
     """Send an email alert to the owner when the Twilio daily SMS limit is hit."""
     global _sms_limit_alerted_date
     from datetime import date
     today = date.today().isoformat()
-    if _sms_limit_alerted_date == today:
-        return  # already alerted today
-    _sms_limit_alerted_date = today
+    with _sms_limit_lock:
+        if _sms_limit_alerted_date == today:
+            return  # already alerted today
+        _sms_limit_alerted_date = today
     try:
         owner_email = os.environ.get('OWNER_EMAIL', '')
         if not owner_email:
@@ -422,21 +424,12 @@ def poll_sms_replies():
         logger.error(f"SMS poll error: {e}", exc_info=True)
 
 def handle_owner_confirm(pending_id, pending):
+    import json
     state = StateManager()
     booking_data = pending['booking_data']
-    # Idempotency guard — check status inside BEGIN IMMEDIATE so concurrent YES
-    # replies are serialised and only one proceeds.
-    from state_manager import _get_conn
-    with _get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            "SELECT status FROM bookings WHERE id=?", (pending_id,)
-        ).fetchone()
-        if not row or row['status'] != 'awaiting_owner':
-            logger.info(f"Booking {pending_id} is not awaiting_owner (status={row['status'] if row else 'missing'}) — ignoring duplicate YES")
-            return
-    # Confirm in DB — atomic BEGIN IMMEDIATE inside confirm_booking prevents races.
-    # Only proceed to calendar/notifications if DB actually recorded the change.
+    # Confirm in DB — confirm_booking() uses its own atomic BEGIN IMMEDIATE and
+    # returns False if the booking isn't in 'awaiting_owner' state, so it already
+    # handles idempotency / concurrent YES replies.
     confirmed = state.confirm_booking(pending_id, booking_data)
     if not confirmed:
         logger.error(f"confirm_booking returned False for {pending_id} — aborting confirmation (already processed or DB error)")
@@ -446,6 +439,15 @@ def handle_owner_confirm(pending_id, pending):
         except Exception as e:
             logger.warning(f"Could not send confirm-failure SMS for {pending_id}: {e}")
         return
+    # Re-fetch the latest booking data from DB rather than using the stale `pending` dict
+    fresh = state.get_booking(pending_id)
+    if fresh:
+        booking_data = json.loads(fresh['booking_data']) if isinstance(fresh['booking_data'], str) else fresh['booking_data']
+        # Also refresh top-level fields from the fresh row
+        pending = dict(fresh)
+    else:
+        logger.warning(f"Could not re-fetch booking {pending_id} after confirm — using stale data")
+
     # DB confirm succeeded — now handle calendar (failure is non-fatal)
     existing_event_id = pending.get('calendar_event_id')
     event_id = None
@@ -640,6 +642,21 @@ def _extract_date_from_correction(text):
             d = datetime(year, month, day)
             if d.date() < datetime.now().date():
                 d = datetime(year + 1, month, day)
+            result_date = d.date()
+            today = datetime.now().date()
+
+            # Validate: must not be in the past
+            if result_date < today:
+                logger.warning(f"_extract_date_from_correction: parsed date {result_date.isoformat()} is in the past — ignoring")
+                return None
+
+            # Validate: must not be more than 90 days in the future
+            from datetime import timedelta
+            if (result_date - today).days > 90:
+                logger.warning(f"_extract_date_from_correction: parsed date {result_date.isoformat()} is more than 90 days in the future — ignoring")
+                return None
+
+            logger.info(f"_extract_date_from_correction: interpreted '{match.group(0)}' (DD/MM) as {result_date.isoformat()} ({result_date.strftime('%A, %d %B %Y')})")
             return d.strftime('%Y-%m-%d')
         except ValueError:
             pass

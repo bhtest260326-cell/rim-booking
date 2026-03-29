@@ -249,13 +249,6 @@ function showModal(title, bodyHtml, footerHtml = '') {
   // Force reflow before adding .open so the CSS opacity transition fires
   void overlay.offsetWidth;
   overlay.classList.add('open');
-
-  const dialog = overlay.querySelector('.ap-modal-dialog') || overlay.firstElementChild;
-  if (dialog) {
-    dialog.classList.remove('ap-modal--slide-up');
-    void dialog.offsetWidth; // force reflow
-    dialog.classList.add('ap-modal--slide-up');
-  }
 }
 
 function closeModal() {
@@ -307,6 +300,7 @@ function relativeTime(str) {
   if (!d) return str || '';
   const now   = Date.now();
   const diffMs = now - d.getTime();
+  if (diffMs < 0) return formatDateShort(str);
   const diffSec = Math.floor(diffMs / 1000);
   const diffMin = Math.floor(diffSec / 60);
   const diffHr  = Math.floor(diffMin / 60);
@@ -507,12 +501,20 @@ function clearSearch() {
 // ── Notifications Bell ───────────────────────────────────────
 function toggleNotifications() {
   // Placeholder — a notifications panel can be injected here
-  const panel = document.getElementById('ap-notif-panel');
+  const panel = document.getElementById('ap-notification-panel');
   if (panel) {
     const isVisible = panel.style.display !== 'none' && panel.style.display !== '';
     panel.style.display = isVisible ? 'none' : 'block';
   } else {
     showToast('No new notifications.', 'info', 3000);
+  }
+}
+
+function clearAllNotifications() {
+  const panel = document.getElementById('ap-notification-panel');
+  if (panel) {
+    const list = document.getElementById('ap-notif-list');
+    if (list) list.innerHTML = '<div class="ap-notif-empty">No new notifications.</div>';
   }
 }
 

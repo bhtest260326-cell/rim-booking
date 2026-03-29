@@ -60,5 +60,8 @@ htmlcov/
 # === RAILWAY ===
 .railway/
 
+# === ASSETS ===
+Banner.jpg
+
 # === CLAUDE ===
 .claude/settings.local.json

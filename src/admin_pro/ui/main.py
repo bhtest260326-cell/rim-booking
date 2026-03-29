@@ -109,18 +109,18 @@ def register(bp, require_auth):
             resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
         resp.set_cookie(
             'ap_session', sid,
-            max_age=28800,   # 8 hours
+            max_age=86400,
             httponly=True,
+            secure=True,
             samesite='Strict',
-            secure=on_railway,
         )
         # CSRF token — JS-readable so fetch() can send it as X-CSRF-Token header
         resp.set_cookie(
             'ap_csrf', csrf_token,
-            max_age=28800,
+            max_age=86400,
             httponly=False,
+            secure=True,
             samesite='Strict',
-            secure=on_railway,
         )
         return resp
 

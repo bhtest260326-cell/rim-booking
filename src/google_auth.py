@@ -1,6 +1,9 @@
 import os
+import logging
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+
+logger = logging.getLogger(__name__)
 
 SCOPES = [
     'https://www.googleapis.com/auth/gmail.modify',
@@ -16,12 +19,20 @@ SHEETS_SCOPES = [
     'https://www.googleapis.com/auth/drive.file',
 ]
 
+def _require_env(name: str) -> str:
+    """Return the value of an environment variable or raise with a helpful message."""
+    value = os.environ.get(name)
+    if not value:
+        raise ValueError(f"{name} environment variable is not set")
+    return value
+
+
 def get_gmail_service():
     creds = Credentials(
         token=None,
-        refresh_token=os.environ['GOOGLE_REFRESH_TOKEN'],
-        client_id=os.environ['GOOGLE_CLIENT_ID'],
-        client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
+        refresh_token=_require_env('GOOGLE_REFRESH_TOKEN'),
+        client_id=_require_env('GOOGLE_CLIENT_ID'),
+        client_secret=_require_env('GOOGLE_CLIENT_SECRET'),
         token_uri='https://oauth2.googleapis.com/token',
         scopes=SCOPES
     )
@@ -30,9 +41,9 @@ def get_gmail_service():
 def get_calendar_service():
     creds = Credentials(
         token=None,
-        refresh_token=os.environ['GOOGLE_REFRESH_TOKEN'],
-        client_id=os.environ['GOOGLE_CLIENT_ID'],
-        client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
+        refresh_token=_require_env('GOOGLE_REFRESH_TOKEN'),
+        client_id=_require_env('GOOGLE_CLIENT_ID'),
+        client_secret=_require_env('GOOGLE_CLIENT_SECRET'),
         token_uri='https://oauth2.googleapis.com/token',
         scopes=SCOPES
     )
@@ -45,12 +56,12 @@ def get_sheets_service():
     spreadsheets + drive.file scopes (separate from the main Gmail/Calendar token).
     Raises KeyError if the env var is not set.
     """
-    sheets_token = os.environ['GOOGLE_SHEETS_REFRESH_TOKEN']
+    sheets_token = _require_env('GOOGLE_SHEETS_REFRESH_TOKEN')
     creds = Credentials(
         token=None,
         refresh_token=sheets_token,
-        client_id=os.environ['GOOGLE_CLIENT_ID'],
-        client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
+        client_id=_require_env('GOOGLE_CLIENT_ID'),
+        client_secret=_require_env('GOOGLE_CLIENT_SECRET'),
         token_uri='https://oauth2.googleapis.com/token',
         scopes=SHEETS_SCOPES,
     )

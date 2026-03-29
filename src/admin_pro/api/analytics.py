@@ -368,54 +368,54 @@ def register(bp, require_auth):
     def analytics_trends():
         try:
             return _trends()
-        except Exception as exc:
+        except Exception:
             logger.exception("analytics_trends error")
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     @bp.route("/api/analytics/funnel", methods=["GET"])
     @require_auth
     def analytics_funnel():
         try:
             return _funnel()
-        except Exception as exc:
+        except Exception:
             logger.exception("analytics_funnel error")
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     @bp.route("/api/analytics/suburbs", methods=["GET"])
     @require_auth
     def analytics_suburbs():
         try:
             return _suburbs()
-        except Exception as exc:
+        except Exception:
             logger.exception("analytics_suburbs error")
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     @bp.route("/api/analytics/services", methods=["GET"])
     @require_auth
     def analytics_services():
         try:
             return _services()
-        except Exception as exc:
+        except Exception:
             logger.exception("analytics_services error")
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     @bp.route("/api/analytics/revenue", methods=["GET"])
     @require_auth
     def analytics_revenue():
         try:
             return _revenue()
-        except Exception as exc:
+        except Exception:
             logger.exception("analytics_revenue error")
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     @bp.route("/api/analytics/heatmap", methods=["GET"])
     @require_auth
     def analytics_heatmap():
         try:
             return _heatmap()
-        except Exception as exc:
+        except Exception:
             logger.exception("analytics_heatmap error")
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
 
 # Self-registration when imported by the admin_pro package

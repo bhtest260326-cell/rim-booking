@@ -192,10 +192,14 @@ def register(bp, require_auth):
     # POST /api/system/app-state/<key>
     # ------------------------------------------------------------------
 
+    _BLOCKED_STATE_KEYS = {'booking_counter', 'json_migration_done', 'gmail_history_id', 'ratelimit_'}
+
     @bp.route('/api/system/app-state/<key>', methods=['POST'])
     @require_auth
     def set_app_state_route(key):
         try:
+            if any(key == bk or key.startswith(bk) for bk in _BLOCKED_STATE_KEYS):
+                return jsonify({'ok': False, 'error': 'This key cannot be modified via API'}), 403
             body = request.get_json(force=True, silent=True) or {}
             value = body.get('value', '')
             from state_manager import StateManager

@@ -212,7 +212,7 @@ function renderPipeline(stages) {
 function showPipelineError(msg) {
   const container = document.getElementById('ap-pipeline');
   if (container) {
-    container.innerHTML = `<div class="ap-error-state">&#9888; ${escHtml(msg || 'Pipeline unavailable')}</div>`;
+    container.innerHTML = `<div class="ap-error-state">&#9888; ${escapeHtml(msg || 'Pipeline unavailable')}</div>`;
   }
 }
 
@@ -232,13 +232,13 @@ function renderRecentBookings(bookings) {
   let rows = '';
   bookings.forEach(function(b) {
     const bd          = b.booking_data || {};
-    const name        = escHtml(bd.name || bd.customer_name || b.customer_email || 'Unknown');
-    const service     = escHtml(bd.service_type
+    const name        = escapeHtml(bd.name || bd.customer_name || b.customer_email || 'Unknown');
+    const service     = escapeHtml(bd.service_type
       ? bd.service_type.replace(/_/g, ' ').replace(/\\b\\w/g, function(c) { return c.toUpperCase(); })
       : 'Wheel Doctor Service');
-    const date        = escHtml(b.preferred_date || bd.preferred_date || '—');
+    const date        = escapeHtml(b.preferred_date || bd.preferred_date || '—');
     const statusBadge = '<span class="ap-badge ap-badge-amber">Pending</span>';
-    const id          = escHtml(b.id || '');
+    const id          = escapeHtml(b.id || '');
 
     rows += `
       <tr style="cursor:pointer" onclick="openBookingDetail('${id}')">
@@ -282,10 +282,10 @@ function renderTodayJobs(bookings) {
   let html = '<div class="ap-timeline">';
   sorted.forEach(function(b) {
     const bd     = b.booking_data || {};
-    const time   = escHtml(bd.preferred_time || '—');
-    const name   = escHtml(bd.name || bd.customer_name || b.customer_email || 'Unknown');
-    const suburb = escHtml(bd.suburb || bd.address_suburb || bd.location_suburb || '');
-    const service = escHtml(bd.service_type
+    const time   = escapeHtml(bd.preferred_time || '—');
+    const name   = escapeHtml(bd.name || bd.customer_name || b.customer_email || 'Unknown');
+    const suburb = escapeHtml(bd.suburb || bd.address_suburb || bd.location_suburb || '');
+    const service = escapeHtml(bd.service_type
       ? bd.service_type.replace(/_/g, ' ').replace(/\\b\\w/g, function(c) { return c.toUpperCase(); })
       : 'Wheel Doctor Service');
 
@@ -386,7 +386,7 @@ function updatePendingBadge(count) {
       badge.id = 'ap-pending-fab';
       badge.className = 'ap-fab';
       badge.title = 'Pending bookings';
-      badge.setAttribute('onclick', "navigateTo('bookings')");
+      badge.setAttribute('onclick', "showSection('bookings')");
       document.body.appendChild(badge);
     }
     badge.innerHTML = `
@@ -406,19 +406,10 @@ function updatePendingBadge(count) {
 function showSectionError(containerId, message) {
   const el = document.getElementById(containerId);
   if (el) {
-    el.innerHTML = `<div class="ap-error-state">&#9888; ${escHtml(message || 'An error occurred')}</div>`;
+    el.innerHTML = `<div class="ap-error-state">&#9888; ${escapeHtml(message || 'An error occurred')}</div>`;
   }
 }
 
-function escHtml(str) {
-  if (str === null || str === undefined) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 // ---------------------------------------------------------------------------
 // KPI Card click navigation

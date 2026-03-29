@@ -26,6 +26,7 @@ const ACTIVITY_STATE = {
 // performs the first data load, then arms the auto-refresh
 // timer if enabled.
 async function initActivity() {
+  if (ACTIVITY_STATE.refreshInterval) clearInterval(ACTIVITY_STATE.refreshInterval);
   injectActivityStyles();
   renderActivityControls();
   await loadActivity();
@@ -205,13 +206,19 @@ function formatEventDetails(details) {
     if (d.reason)
       parts.push(`Reason: ${escapeHtml(d.reason.substring(0, 100))}`);
     if (d.confidence)
-      parts.push(`Confidence: ${d.confidence}`);
+      parts.push(`Confidence: ${escapeHtml(String(d.confidence))}`);
     if (d.old_date && d.new_date)
       parts.push(`${formatDate(d.old_date)} → ${formatDate(d.new_date)}`);
     return parts.length
       ? `<div class="ap-activity-details">${parts.join(' · ')}</div>`
       : '';
   } catch { return ''; }
+}
+
+// ── Load More ────────────────────────────────────────────────
+function loadMoreActivity() {
+  ACTIVITY_STATE.limit += 50;
+  loadActivity();
 }
 
 // ── Styles ────────────────────────────────────────────────────

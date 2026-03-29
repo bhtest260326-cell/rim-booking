@@ -24,8 +24,8 @@ _SESSION_TTL = 28800  # 8 hours
 # blocked for _RATE_LIMIT_BLOCK_SECS seconds.
 # ---------------------------------------------------------------------------
 _RATE_LIMIT_WINDOW = 60       # seconds to count failures in
-_RATE_LIMIT_MAX = 10          # max failures before block
-_RATE_LIMIT_BLOCK_SECS = 300  # 5-minute block
+_RATE_LIMIT_MAX = 5           # max failures before block
+_RATE_LIMIT_BLOCK_SECS = 900  # 15-minute block
 _rate_fail_times: dict = defaultdict(list)   # ip -> [unix_ts, ...]
 _rate_blocked_until: dict = {}               # ip -> unix_ts
 

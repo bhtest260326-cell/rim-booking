@@ -53,8 +53,8 @@ def _require_admin_auth(f):
             auth = request.authorization
             if not (
                 auth
-                and auth.username == _admin_user
-                and auth.password == _admin_pass
+                and hmac.compare_digest(auth.username.encode(), _admin_user.encode())
+                and hmac.compare_digest(auth.password.encode(), _admin_pass.encode())
             ):
                 response = make_response('Unauthorized', 401)
                 response.headers['WWW-Authenticate'] = 'Basic realm="Admin"'
@@ -71,7 +71,7 @@ def _authorised() -> bool:
     # If Basic Auth is active and the request passed _require_admin_auth, trust it
     if _admin_pass:
         auth = request.authorization
-        if auth and auth.username == _admin_user and auth.password == _admin_pass:
+        if auth and hmac.compare_digest(auth.username.encode(), _admin_user.encode()) and hmac.compare_digest(auth.password.encode(), _admin_pass.encode()):
             return True
     if not ADMIN_TOKEN:
         return True
@@ -670,7 +670,7 @@ def api_gmail():
         return jsonify({'messages': inbox, 'error': None})
     except Exception as e:
         logger.error(f"Gmail inbox API error: {e}")
-        return jsonify({'messages': [], 'error': str(e)})
+        return jsonify({'messages': [], 'error': 'Internal server error'})
 
 
 @admin_bp.route('/admin/api/toggle', methods=['POST'])
@@ -708,7 +708,7 @@ def api_confirm_booking(booking_id):
         return jsonify({'ok': True, 'booking_id': booking_id})
     except Exception as e:
         logger.error(f"Dashboard confirm error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/decline', methods=['POST'])
@@ -728,7 +728,7 @@ def api_decline_booking(booking_id):
         return jsonify({'ok': True, 'booking_id': booking_id})
     except Exception as e:
         logger.error(f"Dashboard decline error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/notes', methods=['POST'])
@@ -748,7 +748,7 @@ def api_booking_add_note(booking_id):
         return jsonify({'ok': True}), 200
     except Exception as e:
         logger.error(f"api_booking_add_note error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/edit', methods=['POST'])
@@ -788,7 +788,7 @@ def api_booking_edit(booking_id):
         return jsonify({'ok': True, 'changed': changed}), 200
     except Exception as e:
         logger.error(f"api_booking_edit error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/decline-with-reason', methods=['POST'])
@@ -831,7 +831,7 @@ def api_booking_decline_with_reason(booking_id):
         return jsonify({'ok': True}), 200
     except Exception as e:
         logger.error(f"api_booking_decline_with_reason error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @admin_bp.route('/admin/api/analytics', methods=['GET'])
@@ -905,12 +905,12 @@ def api_analytics():
             'total_created': total_created,
             'total_confirmed': total_confirmed,
             'total_declined': total_declined,
-            'top_suburbs': [{'suburb': s, 'count': c} for s, c in top_suburbs],
+            'top_suburbs': [{'suburb': _html.escape(s), 'count': c} for s, c in top_suburbs],
             'avg_confirm_hours': avg_confirm_hours,
         })
     except Exception as e:
         logger.error(f"Analytics error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @admin_bp.route('/admin/api/booking/<booking_id>/events', methods=['GET'])
@@ -924,4 +924,5 @@ def api_booking_events(booking_id):
         events = state.get_booking_events(booking_id)
         return jsonify({'booking_id': booking_id, 'events': events})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.exception(f"api_booking_events error for {booking_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500

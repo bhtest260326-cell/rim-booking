@@ -292,8 +292,8 @@ HTML_SECTIONS = """
       </div>
       <div class="ap-bulk-actions" id="bulk-actions" style="display:none">
         <span class="ap-bulk-count" id="bulk-count">0 selected</span>
-        <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="bulkCancel()">Cancel Selected</button>
-        <button class="ap-btn ap-btn-sm ap-btn-ghost" onclick="clearBulkSelection()">Clear</button>
+        <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="bulkDecline()">Cancel Selected</button>
+        <button class="ap-btn ap-btn-sm ap-btn-ghost" onclick="clearBookingSelection()">Clear</button>
       </div>
     </div>
 
@@ -319,14 +319,7 @@ HTML_SECTIONS = """
     </div>
 
     <div class="ap-pagination" id="bookings-pagination">
-      <button class="ap-btn ap-btn-ghost ap-btn-sm" id="page-prev" onclick="changePage(-1)" disabled>← Prev</button>
-      <span class="ap-page-info" id="page-info">Page 1</span>
-      <button class="ap-btn ap-btn-ghost ap-btn-sm" id="page-next" onclick="changePage(1)">Next →</button>
-      <select class="ap-input ap-input-xs" id="page-size" onchange="changePageSize(this.value)">
-        <option value="25">25/page</option>
-        <option value="50">50/page</option>
-        <option value="100">100/page</option>
-      </select>
+      <!-- JS replaces this with dynamic pagination controls -->
     </div>
   </div>
 </section>
@@ -774,7 +767,7 @@ HTML_MODALS = """
   <div class="ap-modal" id="ap-modal" onclick="event.stopPropagation()">
     <div class="ap-modal-header">
       <h3 class="ap-modal-title" id="ap-modal-title">Title</h3>
-      <button class="ap-modal-close" onclick="closeModal()" aria-label="Close modal">&#10005;</button>
+      <button class="ap-modal-close" id="ap-modal-close" onclick="closeModal()" aria-label="Close modal">&#10005;</button>
     </div>
     <div class="ap-modal-body" id="ap-modal-body"></div>
     <div class="ap-modal-footer" id="ap-modal-footer"></div>

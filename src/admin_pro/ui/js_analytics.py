@@ -52,18 +52,6 @@ function destroyChart(key) {
 }
 
 // ---------------------------------------------------------------------------
-// Service label helper  (mirrors Python SERVICE_LABELS)
-// ---------------------------------------------------------------------------
-function serviceLabel(type) {
-  const MAP = {
-    rim_repair:    'Wheel Doctor Service',
-    paint_touchup: 'Paint Touch-up',
-    multiple_rims: 'Multiple Rims',
-  };
-  return MAP[type] || (type || 'Unknown').replace(/_/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
-}
-
-// ---------------------------------------------------------------------------
 // Trend period selector state  (period in days; HTML buttons call setTrendPeriod)
 // ---------------------------------------------------------------------------
 let _trendDays = 30;
@@ -337,7 +325,7 @@ async function loadSuburbsChart() {
     listEl.innerHTML = suburbs.map(s => {
       const pct = maxCount ? Math.round((s.count / maxCount) * 100) : 0;
       return `<div style="display:flex;align-items:center;gap:8px;height:36px;flex-shrink:0">` +
-        `<span style="font-size:12px;min-width:90px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</span>` +
+        `<span style="font-size:12px;min-width:90px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.name)}</span>` +
         `<div style="flex:1;background:rgba(255,255,255,0.06);border-radius:3px;height:6px">` +
           `<div style="background:${CHART_COLORS.blue};border-radius:3px;height:6px;width:${pct}%;transition:width 0.4s ease"></div>` +
         `</div>` +

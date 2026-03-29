@@ -4,7 +4,7 @@ import json
 import logging
 import anthropic
 import time as _time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from postcodes import POSTCODE_MAP
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def _perth_today_str() -> str:
     """Return today's date string in Perth time (UTC+8) as 'Weekday DD Month YYYY'."""
-    return (datetime.utcnow() + timedelta(hours=8)).strftime("%A %d %B %Y")
+    return (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%A %d %B %Y")
 
 
 def _is_valid_au_phone(phone: str) -> bool:
@@ -138,19 +138,16 @@ def _check_for_injection(text: str, source: str = 'input') -> tuple[str, bool]:
     # Strip zero-width and formatting characters, normalise lookalikes
     import unicodedata
     normalised = unicodedata.normalize('NFKD', text)
-    normalised = ''.join(
-        c for c in normalised
-        if unicodedata.category(c) not in ('Mn', 'Cf')  # Mn=non-spacing marks, Cf=format chars
-    )
+    normalised = re.sub(r'[\u200b-\u200f\u2028-\u202f\ufeff]', '', normalised)
     matches = _INJECTION_PATTERNS.findall(normalised)
     if not matches:
-        return text, False
+        return normalised, False
     logger.warning(
         f"[SECURITY] Prompt injection attempt detected in {source}. "
         f"Matched: {matches[:5]}. Sanitising before AI call."
     )
-    sanitised = _INJECTION_PATTERNS.sub('[removed]', text)
-    return sanitised, True
+    normalised = _INJECTION_PATTERNS.sub('[removed]', normalised)
+    return normalised, True
 
 
 def _sanitise_extracted_field(value, field_name: str):

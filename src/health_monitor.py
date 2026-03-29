@@ -116,12 +116,13 @@ def run_daily_health_check() -> dict:
     except Exception as exc:
         results['stale_pending'] = f'FAIL: {exc}'
 
-    # Mark as run
-    state.set_app_state(_LAST_RUN_KEY, today)
-
-    # Send alerts if any issues found
-    if alerts:
-        _send_health_alert(alerts, results)
+    try:
+        # Send alerts if any issues found
+        if alerts:
+            _send_health_alert(alerts, results)
+    finally:
+        # Mark as run regardless of alert delivery success
+        state.set_app_state(_LAST_RUN_KEY, today)
 
     logger.info("Daily health check complete: %s", results)
     return results

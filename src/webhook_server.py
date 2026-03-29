@@ -34,11 +34,33 @@ _webhook_rate_limit: dict = collections.defaultdict(list)
 _WEBHOOK_RATE_MAX = 60
 _WEBHOOK_RATE_WINDOW = 60
 
+# Periodic cleanup state for rate-limit dicts
+_rate_limit_cleanup_counter = 0
+_RATE_LIMIT_CLEANUP_EVERY = 100  # run cleanup every N calls
+
+
+def _cleanup_rate_limit_dicts():
+    """Remove IPs with empty or fully-expired timestamp lists to bound memory."""
+    global _rate_limit_cleanup_counter
+    _rate_limit_cleanup_counter += 1
+    if _rate_limit_cleanup_counter < _RATE_LIMIT_CLEANUP_EVERY:
+        return
+    _rate_limit_cleanup_counter = 0
+    now = time.monotonic()
+    for store, window in ((_reschedule_rate_limit, _RATE_LIMIT_WINDOW),
+                          (_webhook_rate_limit, _WEBHOOK_RATE_WINDOW)):
+        cutoff = now - window
+        stale_keys = [ip for ip, ts in store.items()
+                      if not ts or all(t <= cutoff for t in ts)]
+        for ip in stale_keys:
+            del store[ip]
+
 
 def _check_rate_limit(ip: str) -> bool:
     """Return True if the request is allowed, False if rate limit exceeded.
     Also cleans up old timestamps to avoid memory growth.
     """
+    _cleanup_rate_limit_dicts()
     now = time.monotonic()
     window_start = now - _RATE_LIMIT_WINDOW
     timestamps = _reschedule_rate_limit[ip]
@@ -52,6 +74,7 @@ def _check_rate_limit(ip: str) -> bool:
 
 def _check_webhook_rate_limit(ip: str) -> bool:
     """Rate limit for public webhook endpoints (60 req/min per IP)."""
+    _cleanup_rate_limit_dicts()
     now = time.monotonic()
     window_start = now - _WEBHOOK_RATE_WINDOW
     timestamps = _webhook_rate_limit[ip]
@@ -447,6 +470,16 @@ def create_app():
         if not re.match(r'^\d{4}-\d{2}-\d{2}$', new_date):
             return "<h2>Invalid date.</h2>", 400
 
+        # Validate it's a real calendar date and not in the past
+        from datetime import datetime as _dt_val, date as _date_val
+        try:
+            parsed_date = _dt_val.strptime(new_date, '%Y-%m-%d').date()
+        except ValueError:
+            return "<h2>Invalid date.</h2>", 400
+        if parsed_date < _date_val.today():
+            return ("<h2 style='font-family:sans-serif;'>This date is in the past.</h2>"
+                    "<p style='font-family:sans-serif;'>Please choose a future date.</p>"), 400
+
         booking_id = verify_reschedule_token(token)
         if not booking_id:
             return "<h2>This reschedule link has expired or is invalid.</h2>", 400
@@ -786,17 +819,22 @@ async function submitBooking(e) {
 
             # Try to find a slot
             try:
-                from maps_handler import find_next_available_slot, get_job_duration_minutes
-                duration = get_job_duration_minutes(booking_data)
-                slot = find_next_available_slot(
-                    job_duration_minutes=duration,
-                    preferred_date=booking_data.get('preferred_date'),
-                    job_address=f"{sanitized['address']}, {sanitized['suburb']} WA"
-                )
-                if slot:
-                    booking_data['preferred_date'] = slot['date']
-                    booking_data['preferred_time'] = slot['time']
-                    state.update_pending_booking_data(booking_id, booking_data)
+                from maps_handler import find_next_available_slot
+                job_address = f"{sanitized['address']}, {sanitized['suburb']} WA"
+                target_date = booking_data.get('preferred_date')
+                if target_date:
+                    day_bookings = (
+                        state.get_confirmed_bookings_for_date(target_date)
+                        + state.get_pending_bookings_for_date(target_date)
+                    )
+                    slot_date, slot_time = find_next_available_slot(
+                        target_date, job_address, day_bookings,
+                        new_booking_data=booking_data
+                    )
+                    if slot_date and slot_time:
+                        booking_data['preferred_date'] = slot_date
+                        booking_data['preferred_time'] = slot_time
+                        state.update_pending_booking_data(booking_id, booking_data)
             except Exception as e:
                 logger.warning("Web form: slot finding failed: %s", e)
 

@@ -350,6 +350,19 @@ def register(bp, require_auth):
                         "UPDATE bookings SET customer_email=?, booking_data=? WHERE id=?",
                         (anon_email, json.dumps(bd), row["id"])
                     )
+                # Nullify raw_message on affected bookings
+                booking_ids = [row["id"] for row in rows]
+                if booking_ids:
+                    placeholders = ",".join("?" for _ in booking_ids)
+                    conn.execute(
+                        f"UPDATE bookings SET raw_message=NULL WHERE id IN ({placeholders})",
+                        booking_ids,
+                    )
+                    # Scrub booking_events.details for affected bookings
+                    conn.execute(
+                        f"UPDATE booking_events SET details=NULL WHERE booking_id IN ({placeholders})",
+                        booking_ids,
+                    )
                 conn.execute(
                     "UPDATE clarifications SET customer_email=?, booking_data=? WHERE customer_email=?",
                     (anon_email, json.dumps({"purged": True}), email)

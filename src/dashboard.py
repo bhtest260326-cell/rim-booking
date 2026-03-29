@@ -652,8 +652,8 @@ function renderFlags(flags) {
   document.getElementById('flags-body').innerHTML = Object.entries(flags).map(([key, data]) => `
     <div class="flag-row" onclick="toggleFlag('${key}')">
       <div>
-        <div class="flag-label">${data.label}</div>
-        <div class="flag-desc">${data.description}</div>
+        <div class="flag-label">${esc(data.label)}</div>
+        <div class="flag-desc">${esc(data.description)}</div>
       </div>
       <label class="switch" onclick="event.stopPropagation()">
         <input type="checkbox" id="inp-${key}" ${data.enabled ? 'checked' : ''} onchange="toggleFlag('${key}')">
@@ -830,7 +830,7 @@ async function loadAnalytics() {
     const suburbEl = document.getElementById('an-suburbs');
     if (suburbEl) {
       suburbEl.innerHTML = suburbs.length
-        ? suburbs.map(s => `<div class="suburb-row"><span>${s.suburb}</span><span class="suburb-badge">${s.count}</span></div>`).join('')
+        ? suburbs.map(s => `<div class="suburb-row"><span>${esc(s.suburb)}</span><span class="suburb-badge">${s.count}</span></div>`).join('')
         : '<div style="color:var(--muted);font-size:0.8rem;">No data yet</div>';
     }
   } catch (e) {
@@ -1205,6 +1205,8 @@ def toggle():
 @app.route('/config', methods=['GET', 'POST'])
 def config():
     if request.method == 'POST':
+        if not _check_csrf():
+            return jsonify({'error': 'Invalid CSRF token'}), 403
         body    = request.get_json(silent=True) or {}
         current = _load_cfg()
         # Only overwrite password when the caller explicitly provides a new one

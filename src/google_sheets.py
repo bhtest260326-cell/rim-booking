@@ -139,6 +139,8 @@ def append_booking_row(booking_id: str, booking: dict):
             def create(self, **kw): return self
             def execute(self): pass
 
+        if drive_svc is None:
+            logger.warning("Using FakeDrive stub — spreadsheet will not be shared with owner")
         spreadsheet_id = _get_or_create_spreadsheet(sheets_svc, drive_svc or _FakeDrive(), state)
 
         bd = booking.get('booking_data', {})

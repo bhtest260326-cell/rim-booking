@@ -1,3 +1,4 @@
+import re
 import logging
 
 from flask import Blueprint, jsonify, request
@@ -120,6 +121,11 @@ def register(bp, require_auth):
 
             if not to or not message:
                 return jsonify({"ok": False, "error": "Both 'to' and 'message' are required"}), 400
+
+            if not re.match(r'^\+?61[45]\d{8}$', to.replace(' ', '')):
+                return jsonify({"ok": False, "error": "Invalid Australian mobile number"}), 400
+            if len(message) > 1600:
+                return jsonify({"ok": False, "error": "Message too long (max 1600 chars)"}), 400
 
             from twilio_handler import send_sms
 

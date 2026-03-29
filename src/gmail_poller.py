@@ -112,6 +112,26 @@ def get_email_body(message):
                 data = subpart.get('body', {}).get('data')
                 if data:
                     return base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+    # Fallback: extract text from HTML parts if no text/plain found
+    import re as _re
+    for part in payload.get('parts', []):
+        if part.get('mimeType') == 'text/html':
+            data = part.get('body', {}).get('data')
+            if data:
+                html_body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                html_text = _re.sub(r'<[^>]+>', ' ', html_body)
+                html_text = _re.sub(r'\s+', ' ', html_text).strip()
+                if html_text:
+                    return html_text
+        for subpart in part.get('parts', []):
+            if subpart.get('mimeType') == 'text/html':
+                data = subpart.get('body', {}).get('data')
+                if data:
+                    html_body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                    html_text = _re.sub(r'<[^>]+>', ' ', html_body)
+                    html_text = _re.sub(r'\s+', ' ', html_text).strip()
+                    if html_text:
+                        return html_text
     return ""
 
 
@@ -393,6 +413,9 @@ def register_gmail_watch():
         if not state.get_app_state('gmail_history_id'):
             state.set_app_state('gmail_history_id', history_id)
 
+        global _watch_failure_alerted
+        _watch_failure_alerted = False
+
         logger.info(f"Gmail watch registered — historyId {history_id}, expires {expiry_dt}")
         return result
     except Exception as e:
@@ -506,10 +529,9 @@ def process_history_notification(new_history_id):
 
         last_id = state.get_app_state('gmail_history_id')
 
-        # Always advance the stored historyId
-        state.set_app_state('gmail_history_id', str(new_history_id))
-
         if not last_id:
+            # No previous historyId — store this one and wait for next notification
+            state.set_app_state('gmail_history_id', str(new_history_id))
             logger.warning("No stored historyId — skipping history fetch (will catch up on next notification)")
             return
 
@@ -551,6 +573,9 @@ def process_history_notification(new_history_id):
                     _process_sent_message(service, state, msg_added['message']['id'])
         except Exception as _se:
             logger.warning(f"Sent history processing error (non-fatal): {_se}")
+
+        # Only advance historyId after all messages have been successfully processed
+        state.set_app_state('gmail_history_id', str(new_history_id))
 
     except Exception as e:
         logger.error(f"History notification processing error: {e}", exc_info=True)
@@ -632,7 +657,7 @@ def _is_date_available(date_str: str, booking_data: dict, state) -> bool:
     try:
         from maps_handler import find_next_available_slot
         job_address = booking_data.get('address') or booking_data.get('suburb') or ''
-        day_bookings = state.get_confirmed_bookings_for_date(date_str)
+        day_bookings = state.get_confirmed_bookings_for_date(date_str) + state.get_pending_bookings_for_date(date_str)
         slot_date, _ = find_next_available_slot(
             date_str, job_address, day_bookings, new_booking_data=booking_data
         )
@@ -653,7 +678,7 @@ def _send_date_full_email(service, to_email: str, subject: str, requested_date: 
     try:
         from datetime import datetime as _dt
         try:
-            day_name = _dt.strptime(requested_date, '%Y-%m-%d').strftime('%A %-d %b')
+            day_name = _dt.strptime(requested_date, '%Y-%m-%d').strftime('%A %d %b').replace(' 0', ' ')
         except Exception:
             day_name = requested_date
 
