@@ -4,8 +4,13 @@ from datetime import datetime, timedelta
 from googleapiclient.errors import HttpError
 from google_auth import get_calendar_service
 from maps_handler import get_travel_minutes, BUSINESS_ADDRESS, get_job_duration_minutes
+from circuit_breaker import CircuitBreaker, CircuitOpenError
+from error_codes import ErrorCode
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Google Calendar API calls
+_calendar_cb = CircuitBreaker("google_calendar", failure_threshold=5, recovery_timeout=300)
 
 DEFAULT_JOB_DURATION_MINUTES = 120
 
@@ -135,20 +140,25 @@ Payment: EFTPOS on the day
         
         calendar_id = os.environ['GOOGLE_CALENDAR_ID']
         
-        created_event = service.events().insert(
+        request = service.events().insert(
             calendarId=calendar_id,
             body=event
-        ).execute()
-        
+        )
+        try:
+            created_event = _calendar_cb.call(request.execute)
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot create event for {title}")
+            return None
+
         event_id = created_event.get('id')
         logger.info(f"Calendar event created: {event_id} for {title} on {date_str}")
         return event_id
-        
+
     except HttpError as e:
-        logger.error(f"Google Calendar API error: {e}")
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Google Calendar API error: {e}")
         return None
     except Exception as e:
-        logger.error(f"Calendar event creation error: {e}", exc_info=True)
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Calendar event creation error: {e}", exc_info=True)
         return None
 
 
@@ -248,21 +258,26 @@ Payment: EFTPOS on the day
 
         calendar_id = os.environ['GOOGLE_CALENDAR_ID']
 
-        created_event = service.events().insert(
+        request = service.events().insert(
             calendarId=calendar_id,
             body=event,
             sendUpdates='all' if attendees else 'none'
-        ).execute()
+        )
+        try:
+            created_event = _calendar_cb.call(request.execute)
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot create tentative event for {title}")
+            return None
 
         event_id = created_event.get('id')
         logger.info(f"Tentative calendar event created: {event_id} for {title} on {date_str} (booking {pending_id})")
         return event_id
 
     except HttpError as e:
-        logger.error(f"Google Calendar API error creating tentative event: {e}")
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Google Calendar API error creating tentative event: {e}")
         return None
     except Exception as e:
-        logger.error(f"Tentative calendar event creation error: {e}", exc_info=True)
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Tentative calendar event creation error: {e}", exc_info=True)
         return None
 
 
@@ -280,18 +295,31 @@ def update_calendar_event_time(event_id, new_start_dt, duration_minutes):
         service = get_calendar_service()
         calendar_id = os.environ['GOOGLE_CALENDAR_ID']
 
-        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        try:
+            event = _calendar_cb.call(
+                service.events().get(calendarId=calendar_id, eventId=event_id).execute
+            )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot update event {event_id}")
+            return False
+
         end_dt = new_start_dt + timedelta(minutes=duration_minutes)
 
         event['start'] = {'dateTime': new_start_dt.isoformat(), 'timeZone': 'Australia/Perth'}
         event['end']   = {'dateTime': end_dt.isoformat(),       'timeZone': 'Australia/Perth'}
 
-        service.events().update(
-            calendarId=calendar_id,
-            eventId=event_id,
-            body=event,
-            sendUpdates='none',
-        ).execute()
+        try:
+            _calendar_cb.call(
+                service.events().update(
+                    calendarId=calendar_id,
+                    eventId=event_id,
+                    body=event,
+                    sendUpdates='none',
+                ).execute
+            )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot update event {event_id}")
+            return False
 
         logger.info(
             f"Calendar event {event_id} rescheduled → "
@@ -300,7 +328,7 @@ def update_calendar_event_time(event_id, new_start_dt, duration_minutes):
         return True
 
     except Exception as e:
-        logger.error(f"Error updating calendar event time {event_id}: {e}")
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Error updating calendar event time {event_id}: {e}")
         return False
 
 
@@ -310,7 +338,13 @@ def get_event_datetime(event_id):
     try:
         service = get_calendar_service()
         calendar_id = os.environ['GOOGLE_CALENDAR_ID']
-        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        try:
+            event = _calendar_cb.call(
+                service.events().get(calendarId=calendar_id, eventId=event_id).execute
+            )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot fetch event {event_id}")
+            return None
         start = event.get('start', {})
         dt_str = start.get('dateTime')
         if dt_str:
@@ -321,7 +355,7 @@ def get_event_datetime(event_id):
             return {'date': date_str, 'time': '09:00'}
         return None
     except Exception as e:
-        logger.error(f"Error fetching event datetime for {event_id}: {e}")
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Error fetching event datetime for {event_id}: {e}")
         return None
 
 
@@ -333,13 +367,19 @@ def get_event_attendee_status(event_id, attendee_email):
     try:
         service = get_calendar_service()
         calendar_id = os.environ['GOOGLE_CALENDAR_ID']
-        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        try:
+            event = _calendar_cb.call(
+                service.events().get(calendarId=calendar_id, eventId=event_id).execute
+            )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot fetch attendee status for {event_id}")
+            return None
         for attendee in event.get('attendees', []):
             if attendee.get('email', '').lower() == attendee_email.lower():
                 return attendee.get('responseStatus', 'needsAction')
         return None
     except Exception as e:
-        logger.error(f"Error fetching attendee status for event {event_id}: {e}")
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Error fetching attendee status for event {event_id}: {e}")
         return None
 
 
@@ -348,14 +388,20 @@ def delete_calendar_event(event_id):
     try:
         service = get_calendar_service()
         calendar_id = os.environ['GOOGLE_CALENDAR_ID']
-        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        try:
+            _calendar_cb.call(
+                service.events().delete(calendarId=calendar_id, eventId=event_id).execute
+            )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot delete event {event_id}")
+            return False
         logger.info(f"Calendar event {event_id} deleted")
         return True
     except HttpError as e:
-        logger.error(f"Error deleting calendar event {event_id}: {e}")
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Error deleting calendar event {event_id}: {e}")
         return False
     except Exception as e:
-        logger.error(f"Error deleting calendar event {event_id}: {e}")
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Error deleting calendar event {event_id}: {e}")
         return False
 
 
@@ -369,7 +415,13 @@ def confirm_tentative_event(event_id, booking_data):
         service = get_calendar_service()
         calendar_id = os.environ['GOOGLE_CALENDAR_ID']
 
-        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        try:
+            event = _calendar_cb.call(
+                service.events().get(calendarId=calendar_id, eventId=event_id).execute
+            )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot confirm event {event_id}")
+            return False
 
         summary = event.get('summary', '')
         if summary.startswith(TENTATIVE_EVENT_PREFIX):
@@ -389,16 +441,22 @@ def confirm_tentative_event(event_id, booking_data):
         if 'attendees' in event:
             del event['attendees']
 
-        service.events().update(
-            calendarId=calendar_id,
-            eventId=event_id,
-            body=event,
-            sendUpdates='none'
-        ).execute()
+        try:
+            _calendar_cb.call(
+                service.events().update(
+                    calendarId=calendar_id,
+                    eventId=event_id,
+                    body=event,
+                    sendUpdates='none'
+                ).execute
+            )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Calendar circuit open — cannot confirm event {event_id}")
+            return False
 
         logger.info(f"Tentative event {event_id} confirmed and cleaned up")
         return True
 
     except Exception as e:
-        logger.error(f"Error confirming tentative event {event_id}: {e}")
+        logger.error(f"[{ErrorCode.CALENDAR_SYNC_FAILED}] Error confirming tentative event {event_id}: {e}")
         return False

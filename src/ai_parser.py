@@ -6,8 +6,13 @@ import anthropic
 import time as _time
 from datetime import datetime, timedelta, timezone
 from postcodes import POSTCODE_MAP
+from circuit_breaker import CircuitBreaker, CircuitOpenError
+from error_codes import ErrorCode
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Claude API calls
+_claude_cb = CircuitBreaker("claude_api", failure_threshold=5, recovery_timeout=300)
 
 
 def _perth_today_str() -> str:
@@ -52,12 +57,19 @@ def _call_claude(*, model, max_tokens, messages, tools=None, tool_choice=None, s
     if system:
         kwargs['system'] = system
 
+    # Check circuit breaker before attempting retries
+    if _claude_cb.state == CircuitBreaker.OPEN:
+        raise CircuitOpenError("claude_api", _claude_cb.recovery_timeout)
+
     last_err = None
     for attempt in range(3):
         try:
-            return client.messages.create(**kwargs)
+            result = client.messages.create(**kwargs)
+            _claude_cb.record_success()
+            return result
         except _anthropic.APITimeoutError as e:
-            logger.warning(f"Claude API timeout on attempt {attempt+1}: {e}")
+            logger.warning(f"[{ErrorCode.EXTRACTION_FAILED}] Claude API timeout on attempt {attempt+1}: {e}")
+            _claude_cb.record_failure()
             if attempt < 2:
                 delay = 2 ** attempt
                 _time.sleep(delay)
@@ -65,12 +77,14 @@ def _call_claude(*, model, max_tokens, messages, tools=None, tool_choice=None, s
                 continue
             raise
         except _anthropic.APIStatusError as e:
-            if e.status_code in (429, 500, 502, 503, 504) and attempt < 2:
-                delay = 2 ** attempt  # 1s, 2s
-                logger.warning(f"Claude API error {e.status_code} on attempt {attempt+1}, retrying in {delay}s")
-                _time.sleep(delay)
-                last_err = e
-                continue
+            if e.status_code in (429, 500, 502, 503, 504):
+                _claude_cb.record_failure()
+                if attempt < 2:
+                    delay = 2 ** attempt  # 1s, 2s
+                    logger.warning(f"[{ErrorCode.EXTRACTION_FAILED}] Claude API error {e.status_code} on attempt {attempt+1}, retrying in {delay}s")
+                    _time.sleep(delay)
+                    last_err = e
+                    continue
             raise
     raise last_err
 
@@ -320,8 +334,11 @@ def classify_clarification_reply(body: str, subject: str) -> str:
             return 'off_scope'
         logger.warning(f"Unexpected clarification intent answer: {answer!r} — defaulting to booking_detail")
         return 'booking_detail'
+    except CircuitOpenError:
+        logger.error(f"[{ErrorCode.CIRCUIT_OPEN}] Claude circuit open during clarification classification — defaulting to booking_detail")
+        return 'booking_detail'
     except Exception as e:
-        logger.error(f"Clarification intent classification error: {e} — defaulting to booking_detail")
+        logger.error(f"[{ErrorCode.EXTRACTION_FAILED}] Clarification intent classification error: {e} — defaulting to booking_detail")
         return 'booking_detail'
 
 
@@ -1002,11 +1019,14 @@ def extract_booking_details(message_body, subject="", customer_email=""):
         logger.info(f"Extracted booking: confidence={booking_data.get('confidence')}, missing={missing_fields}")
         return booking_data, missing_fields, needs_clarification
 
+    except CircuitOpenError:
+        logger.error(f"[{ErrorCode.CIRCUIT_OPEN}] Claude API circuit open — cannot extract booking details")
+        return {}, ["there was a temporary system issue — please try again in a few minutes"], True
     except anthropic.APIError as e:
-        logger.error(f"Anthropic API error during extraction: {e}", exc_info=True)
+        logger.error(f"[{ErrorCode.EXTRACTION_FAILED}] Anthropic API error during extraction: {e}", exc_info=True)
         return {}, ["there was a temporary system issue — please try again in a moment"], True
     except Exception as e:
-        logger.error(f"AI extraction error: {e}", exc_info=True)
+        logger.error(f"[{ErrorCode.EXTRACTION_FAILED}] AI extraction error: {e}", exc_info=True)
         return {}, ["the details of your booking request — please resend with your name, address, preferred date, and service type"], True
 
 
@@ -1070,8 +1090,11 @@ def parse_owner_correction(original_booking, correction_text, slot_hint=None):
         logger.info(f"Booking updated via correction: {correction_text}")
         return updated
 
+    except CircuitOpenError:
+        logger.error(f"[{ErrorCode.CIRCUIT_OPEN}] Claude circuit open during owner correction — returning original booking")
+        return original_booking
     except Exception as e:
-        logger.error(f"Correction parse error: {e}")
+        logger.error(f"[{ErrorCode.EXTRACTION_FAILED}] Correction parse error: {e}")
         return original_booking
 
 

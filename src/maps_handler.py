@@ -7,7 +7,13 @@ import requests
 from datetime import datetime, timedelta, timezone
 from itertools import permutations as _perms
 
+from circuit_breaker import CircuitBreaker, CircuitOpenError
+from error_codes import ErrorCode
+
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Google Maps API calls
+_maps_cb = CircuitBreaker("google_maps", failure_threshold=5, recovery_timeout=300)
 
 # WA Public Holidays — update annually
 _WA_PUBLIC_HOLIDAYS: set = {
@@ -206,6 +212,11 @@ def get_travel_minutes(origin: str, destination: str, departure_dt=None) -> int:
     cache_key = (origin.lower().strip(), destination.lower().strip(), dep_key)
 
     try:
+        # Check circuit breaker before making the API call
+        if _maps_cb.state == CircuitBreaker.OPEN:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Google Maps circuit open — using fallback 30 min")
+            return 30
+
         params = {
             'origins': f"{origin}, Perth WA, Australia",
             'destinations': f"{destination}, Perth WA, Australia",
@@ -224,21 +235,26 @@ def get_travel_minutes(origin: str, destination: str, departure_dt=None) -> int:
             except Exception:
                 pass  # fall back to no traffic data
         try:
-            resp = requests.get(
+            resp = _maps_cb.call(
+                requests.get,
                 "https://maps.googleapis.com/maps/api/distancematrix/json",
                 params=params,
                 timeout=10
             )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Google Maps circuit open — using fallback 30 min")
+            return 30
         except requests.exceptions.Timeout:
-            logger.warning("Google Maps API timeout after 10s — using fallback travel time of 30 min")
+            logger.warning(f"[{ErrorCode.MAPS_LOOKUP_FAILED}] Google Maps API timeout after 10s — using fallback travel time of 30 min")
             return 30
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Google Maps API request error: {e} — using fallback")
+            logger.warning(f"[{ErrorCode.MAPS_LOOKUP_FAILED}] Google Maps API request error: {e} — using fallback")
             return 30
         data = resp.json()
 
         if data.get('status') != 'OK':
-            logger.warning(f"Maps API status: {data.get('status')} for {origin} → {destination}")
+            logger.warning(f"[{ErrorCode.MAPS_LOOKUP_FAILED}] Maps API status: {data.get('status')} for {origin} → {destination}")
+            _maps_cb.record_failure()
             return 30
 
         rows = data.get('rows', [])
@@ -259,7 +275,7 @@ def get_travel_minutes(origin: str, destination: str, departure_dt=None) -> int:
         return travel_min
 
     except Exception as e:
-        logger.error(f"Maps API error: {e}")
+        logger.error(f"[{ErrorCode.MAPS_LOOKUP_FAILED}] Maps API error: {e}")
         return 30
 
 
@@ -285,9 +301,15 @@ def get_distance_matrix(addresses):
         return _matrix_cache[key]
 
     try:
+        # Check circuit breaker before making the API call
+        if _maps_cb.state == CircuitBreaker.OPEN:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Google Maps circuit open — using fallback matrix")
+            return fallback
+
         addrs_ctx = [f"{a}, Perth WA, Australia" for a in addresses]
         try:
-            resp = requests.get(
+            resp = _maps_cb.call(
+                requests.get,
                 "https://maps.googleapis.com/maps/api/distancematrix/json",
                 params={
                     'origins':      '|'.join(addrs_ctx),
@@ -298,16 +320,20 @@ def get_distance_matrix(addresses):
                 },
                 timeout=15,
             )
+        except CircuitOpenError:
+            logger.warning(f"[{ErrorCode.CIRCUIT_OPEN}] Google Maps circuit open — using fallback matrix")
+            return fallback
         except requests.exceptions.Timeout:
-            logger.warning("Google Maps API timeout after 15s — using fallback travel time of 30 min")
+            logger.warning(f"[{ErrorCode.MAPS_LOOKUP_FAILED}] Google Maps API timeout after 15s — using fallback travel time of 30 min")
             return fallback
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Google Maps API request error: {e} — using fallback")
+            logger.warning(f"[{ErrorCode.MAPS_LOOKUP_FAILED}] Google Maps API request error: {e} — using fallback")
             return fallback
         data = resp.json()
 
         if data.get('status') != 'OK':
-            logger.warning(f"Distance matrix status: {data.get('status')}")
+            logger.warning(f"[{ErrorCode.MAPS_LOOKUP_FAILED}] Distance matrix status: {data.get('status')}")
+            _maps_cb.record_failure()
             return fallback
 
         matrix = []
