@@ -223,12 +223,16 @@ def register(bp, require_auth):
                 )
                 total = count("SELECT COUNT(*) FROM bookings")
                 today_count = count(
-                    "SELECT COUNT(*) FROM bookings WHERE preferred_date=?",
+                    "SELECT COUNT(*) FROM bookings "
+                    "WHERE substr(preferred_date,1,10)=? "
+                    "AND status IN ('confirmed','awaiting_owner')",
                     (today,)
                 )
                 week_count = count(
                     "SELECT COUNT(*) FROM bookings "
-                    "WHERE preferred_date >= ? AND preferred_date <= ?",
+                    "WHERE substr(preferred_date,1,10) >= ? "
+                    "AND substr(preferred_date,1,10) <= ? "
+                    "AND status IN ('confirmed','awaiting_owner')",
                     (week_start, week_end)
                 )
 
