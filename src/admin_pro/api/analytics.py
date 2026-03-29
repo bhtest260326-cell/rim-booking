@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from flask import request, jsonify
 
 from state_manager import _get_conn
+from admin_pro.api import api_response
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def _overview():
             "SELECT COUNT(DISTINCT customer_email) FROM bookings WHERE customer_email IS NOT NULL"
         ).fetchone()[0]
 
-    return jsonify({
+    return api_response(data={
         "total_bookings": total,
         "confirmed": confirmed,
         "declined": declined,
@@ -168,7 +169,7 @@ def _trends():
 
     labels = [_week_label(start) for start, _ in buckets]
 
-    return jsonify({"labels": labels, "counts": counts, "weeks": weeks})
+    return api_response(data={"labels": labels, "counts": counts, "weeks": weeks})
 
 
 def _funnel():
@@ -190,7 +191,7 @@ def _funnel():
             "SELECT COUNT(*) FROM bookings WHERE status='confirmed'"
         ).fetchone()[0]
 
-    return jsonify({
+    return api_response(data={
         "stages": [
             {"label": "Emails Received", "count": emails_received},
             {"label": "Booking Extracted", "count": booking_extracted},
@@ -227,7 +228,7 @@ def _suburbs():
             suburb_counts[suburb] = suburb_counts.get(suburb, 0) + 1
 
     top10 = sorted(suburb_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-    return jsonify({"suburbs": [{"name": name, "count": cnt} for name, cnt in top10]})
+    return api_response(data={"suburbs": [{"name": name, "count": cnt} for name, cnt in top10]})
 
 
 def _services():
@@ -250,7 +251,7 @@ def _services():
         for stype, cnt in sorted(service_counts.items(), key=lambda x: x[1], reverse=True)
     ]
 
-    return jsonify({"services": services})
+    return api_response(data={"services": services})
 
 
 def _revenue():
@@ -282,7 +283,7 @@ def _revenue():
         )
     ]
 
-    return jsonify({
+    return api_response(data={
         "total_estimated": round(total_estimated, 2),
         "by_service": by_service_list,
         "currency": "AUD",
@@ -346,7 +347,7 @@ def _heatmap():
         for (dow, hour), count in sorted(freq.items())
     ]
 
-    return jsonify({"data": data})
+    return api_response(data={"heatmap": data})
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +362,7 @@ def register(bp, require_auth):
             return _overview()
         except Exception:
             logger.exception("analytics_overview error")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/analytics/trends", methods=["GET"])
     @require_auth
@@ -370,7 +371,7 @@ def register(bp, require_auth):
             return _trends()
         except Exception:
             logger.exception("analytics_trends error")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/analytics/funnel", methods=["GET"])
     @require_auth
@@ -379,7 +380,7 @@ def register(bp, require_auth):
             return _funnel()
         except Exception:
             logger.exception("analytics_funnel error")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/analytics/suburbs", methods=["GET"])
     @require_auth
@@ -388,7 +389,7 @@ def register(bp, require_auth):
             return _suburbs()
         except Exception:
             logger.exception("analytics_suburbs error")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/analytics/services", methods=["GET"])
     @require_auth
@@ -397,7 +398,7 @@ def register(bp, require_auth):
             return _services()
         except Exception:
             logger.exception("analytics_services error")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/analytics/revenue", methods=["GET"])
     @require_auth
@@ -406,7 +407,7 @@ def register(bp, require_auth):
             return _revenue()
         except Exception:
             logger.exception("analytics_revenue error")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/analytics/heatmap", methods=["GET"])
     @require_auth
@@ -415,7 +416,7 @@ def register(bp, require_auth):
             return _heatmap()
         except Exception:
             logger.exception("analytics_heatmap error")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
 
 # Self-registration when imported by the admin_pro package

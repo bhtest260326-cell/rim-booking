@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timezone
 from flask import jsonify, request
 from state_manager import _get_conn
+from admin_pro.api import api_response
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,31 @@ def register(bp, require_auth):
     @require_auth
     def list_customers():
         try:
+            # Pagination params
+            try:
+                page = max(1, int(request.args.get("page", 1)))
+            except (ValueError, TypeError):
+                page = 1
+            try:
+                per_page = min(200, max(1, int(request.args.get("per_page", 50))))
+            except (ValueError, TypeError):
+                per_page = 50
+
             with _get_conn() as conn:
+                # Get total count
+                total = conn.execute(
+                    """
+                    SELECT COUNT(*) as cnt FROM (
+                        SELECT customer_email
+                        FROM bookings
+                        WHERE customer_email IS NOT NULL AND customer_email != ''
+                        GROUP BY customer_email
+                    )
+                    """
+                ).fetchone()["cnt"]
+
+                # Get paginated results
+                offset = (page - 1) * per_page
                 rows = conn.execute(
                     """
                     SELECT customer_email,
@@ -28,7 +53,9 @@ def register(bp, require_auth):
                     WHERE customer_email IS NOT NULL AND customer_email != ''
                     GROUP BY customer_email
                     ORDER BY last_booking DESC
-                    """
+                    LIMIT ? OFFSET ?
+                    """,
+                    (per_page, offset),
                 ).fetchall()
 
                 customers = []
@@ -67,17 +94,24 @@ def register(bp, require_auth):
                         }
                     )
 
-            return jsonify({"customers": customers, "total": len(customers)})
+            pages = max(1, (total + per_page - 1) // per_page)
+            return api_response(data={
+                "customers": customers,
+                "total": total,
+                "page": page,
+                "per_page": per_page,
+                "pages": pages,
+            })
         except Exception:
             logger.exception("Error listing customers")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/customers/search", methods=["GET"])
     @require_auth
     def search_customers():
         q = request.args.get("q", "").strip()
         if not q:
-            return jsonify({"results": []})
+            return api_response(data={"results": []})
         if len(q) > 100:
             q = q[:100]  # Cap query length to prevent expensive LIKE scans
 
@@ -134,10 +168,10 @@ def register(bp, require_auth):
                         }
                     )
 
-            return jsonify({"results": results})
+            return api_response(data={"results": results})
         except Exception:
             logger.exception("Error searching customers")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/customers/service-history", methods=["GET"])
     @require_auth
@@ -155,10 +189,10 @@ def register(bp, require_auth):
                 ).fetchall()
 
             history = [dict(row) for row in rows]
-            return jsonify({"history": history})
+            return api_response(data={"history": history})
         except Exception:
             logger.exception("Error fetching service history")
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     @bp.route("/api/customers/<email_b64>", methods=["GET"])
     @require_auth
@@ -166,7 +200,7 @@ def register(bp, require_auth):
         try:
             # Validate identifier length before decoding
             if len(email_b64) > 200:
-                return jsonify({"error": "Invalid identifier"}), 400
+                return api_response(error="Invalid identifier", code="INVALID_IDENTIFIER", status=400)
             # Decode base64url-encoded email
             padding = 4 - len(email_b64) % 4
             if padding != 4:
@@ -174,9 +208,9 @@ def register(bp, require_auth):
             email = base64.urlsafe_b64decode(email_b64).decode("utf-8")
             # Basic email format validation
             if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
-                return jsonify({"error": "Invalid identifier"}), 400
+                return api_response(error="Invalid identifier", code="INVALID_IDENTIFIER", status=400)
         except Exception:
-            return jsonify({"error": "Invalid email encoding"}), 400
+            return api_response(error="Invalid email encoding", code="INVALID_ENCODING", status=400)
 
         try:
             with _get_conn() as conn:
@@ -191,7 +225,7 @@ def register(bp, require_auth):
                 ).fetchall()
 
                 if not booking_rows:
-                    return jsonify({"error": "Customer not found"}), 404
+                    return api_response(error="Customer not found", code="NOT_FOUND", status=404)
 
                 bookings = [dict(row) for row in booking_rows]
 
@@ -245,20 +279,18 @@ def register(bp, require_auth):
                 for h in service_history
             )
 
-            return jsonify(
-                {
-                    "email": email,
-                    "name": name,
-                    "phone": phone,
-                    "stats": stats,
-                    "bookings": bookings,
-                    "service_history": service_history,
-                    "maintenance_due": maintenance_due,
-                }
-            )
+            return api_response(data={
+                "email": email,
+                "name": name,
+                "phone": phone,
+                "stats": stats,
+                "bookings": bookings,
+                "service_history": service_history,
+                "maintenance_due": maintenance_due,
+            })
         except Exception:
             logger.exception("Error fetching customer profile for %s", email)
-            return jsonify({"error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
 
     # ------------------------------------------------------------------
@@ -270,15 +302,15 @@ def register(bp, require_auth):
         """Export all data held for a customer (GDPR right of access)."""
         try:
             if len(email_b64) > 200:
-                return jsonify({"ok": False, "error": "Invalid identifier"}), 400
+                return api_response(error="Invalid identifier", code="INVALID_IDENTIFIER", status=400)
             padding = 4 - len(email_b64) % 4
             if padding != 4:
                 email_b64 += "=" * padding
             email = base64.urlsafe_b64decode(email_b64).decode("utf-8")
             if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
-                return jsonify({"ok": False, "error": "Invalid email"}), 400
+                return api_response(error="Invalid email", code="INVALID_EMAIL", status=400)
         except Exception:
-            return jsonify({"ok": False, "error": "Invalid identifier"}), 400
+            return api_response(error="Invalid identifier", code="INVALID_IDENTIFIER", status=400)
 
         try:
             with _get_conn() as conn:
@@ -306,10 +338,10 @@ def register(bp, require_auth):
                 "clarifications": [dict(c) for c in clarifications],
                 "booking_events": [dict(e) for e in events],
             }
-            return jsonify({"ok": True, "data": result})
+            return api_response(data=result)
         except Exception:
             logger.exception("gdpr_export failed for %s", email_b64)
-            return jsonify({"ok": False, "error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
     # ------------------------------------------------------------------
     # POST /api/gdpr/purge/<email_b64> — Anonymise all PII for a customer
@@ -320,15 +352,15 @@ def register(bp, require_auth):
         """Anonymise all PII for a customer (GDPR right to erasure)."""
         try:
             if len(email_b64) > 200:
-                return jsonify({"ok": False, "error": "Invalid identifier"}), 400
+                return api_response(error="Invalid identifier", code="INVALID_IDENTIFIER", status=400)
             padding = 4 - len(email_b64) % 4
             if padding != 4:
                 email_b64 += "=" * padding
             email = base64.urlsafe_b64decode(email_b64).decode("utf-8")
             if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
-                return jsonify({"ok": False, "error": "Invalid email"}), 400
+                return api_response(error="Invalid email", code="INVALID_EMAIL", status=400)
         except Exception:
-            return jsonify({"ok": False, "error": "Invalid identifier"}), 400
+            return api_response(error="Invalid identifier", code="INVALID_IDENTIFIER", status=400)
 
         try:
             anon_marker = "[GDPR_PURGED]"
@@ -370,10 +402,10 @@ def register(bp, require_auth):
                 purged_count = len(rows)
 
             logger.info("GDPR purge completed for %s — %d records anonymised", email, purged_count)
-            return jsonify({"ok": True, "records_anonymised": purged_count})
+            return api_response(data={"records_anonymised": purged_count})
         except Exception:
             logger.exception("gdpr_purge failed for %s", email_b64)
-            return jsonify({"ok": False, "error": "Internal server error"}), 500
+            return api_response(error="Internal server error", code="INTERNAL_ERROR", status=500)
 
 
 from admin_pro import admin_pro_bp, require_auth  # noqa: E402

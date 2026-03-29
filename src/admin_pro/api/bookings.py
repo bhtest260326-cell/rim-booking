@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 from flask import request, jsonify
 
 from state_manager import StateManager, _get_conn
+from admin_pro.api import api_response
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ def register(bp, require_auth):
             bookings = [_row_to_dict(r) for r in rows]
             pages = max(1, (total + per_page - 1) // per_page)
 
-            return jsonify({
+            return api_response(data={
                 'bookings': bookings,
                 'total': total,
                 'page': page,
@@ -205,7 +206,7 @@ def register(bp, require_auth):
 
         except Exception:
             logger.exception("list_bookings failed")
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # GET /api/bookings/stats
@@ -246,7 +247,7 @@ def register(bp, require_auth):
                     (week_start, week_end)
                 )
 
-            return jsonify({
+            return api_response(data={
                 'awaiting_owner': awaiting,
                 'confirmed': confirmed,
                 'declined': declined,
@@ -257,7 +258,7 @@ def register(bp, require_auth):
 
         except Exception:
             logger.exception("booking_stats failed")
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # GET /api/bookings/<booking_id> — single booking with events
@@ -272,7 +273,7 @@ def register(bp, require_auth):
                 ).fetchone()
 
                 if not row:
-                    return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+                    return api_response(error='Booking not found', code='NOT_FOUND', status=404)
 
                 booking = _row_to_dict(row)
 
@@ -282,11 +283,11 @@ def register(bp, require_auth):
                 ).fetchall()
 
             booking['events'] = [_event_row_to_dict(e) for e in event_rows]
-            return jsonify({'ok': True, 'booking': booking})
+            return api_response(data={'booking': booking})
 
         except Exception:
             logger.exception("get_booking failed for %s", booking_id)
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # GET /api/bookings/<booking_id>/events — audit trail only
@@ -301,7 +302,7 @@ def register(bp, require_auth):
                     "SELECT 1 FROM bookings WHERE id=?", (booking_id,)
                 ).fetchone()
                 if not exists:
-                    return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+                    return api_response(error='Booking not found', code='NOT_FOUND', status=404)
 
                 event_rows = conn.execute(
                     "SELECT id, event_type, actor, details, created_at "
@@ -310,11 +311,11 @@ def register(bp, require_auth):
                 ).fetchall()
 
             events = [_event_row_to_dict(e) for e in event_rows]
-            return jsonify({'events': events})
+            return api_response(data={'events': events})
 
         except Exception:
             logger.exception("get_booking_events failed for %s", booking_id)
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # POST /api/bookings/<booking_id>/confirm
@@ -333,13 +334,13 @@ def register(bp, require_auth):
                 ).fetchone()
 
             if not row:
-                return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+                return api_response(error='Booking not found', code='NOT_FOUND', status=404)
 
             if row['status'] != 'awaiting_owner':
-                return jsonify({
-                    'ok': False,
-                    'error': f"Booking is in '{row['status']}' state, not awaiting_owner"
-                }), 409
+                return api_response(
+                    error=f"Booking is in '{row['status']}' state, not awaiting_owner",
+                    code='INVALID_STATE', status=409
+                )
 
             try:
                 booking_data = json.loads(row['booking_data']) if row['booking_data'] else {}
@@ -351,12 +352,12 @@ def register(bp, require_auth):
             if body.get('booking_data'):
                 err = _validate_booking_data(body['booking_data'])
                 if err:
-                    return jsonify({'ok': False, 'error': err}), 400
+                    return api_response(error=err, code='VALIDATION_ERROR', status=400)
                 booking_data.update(body['booking_data'])
 
             success = state.confirm_booking(booking_id, booking_data)
             if not success:
-                return jsonify({'ok': False, 'error': 'Could not confirm booking (possible time conflict or state error)'}), 409
+                return api_response(error='Could not confirm booking (possible time conflict or state error)', code='CONFLICT', status=409)
 
             # ── Google Calendar sync: create or convert event ──
             calendar_event_id = None
@@ -400,11 +401,11 @@ def register(bp, require_auth):
                 }
             )
             logger.info("Admin confirmed booking %s (sms=%s email=%s)", booking_id, notif['sms_sent'], notif['email_sent'])
-            return jsonify({'ok': True})
+            return api_response()
 
         except Exception:
             logger.exception("confirm_booking failed for %s", booking_id)
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # POST /api/bookings/<booking_id>/decline
@@ -424,13 +425,13 @@ def register(bp, require_auth):
                 ).fetchone()
 
             if not row:
-                return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+                return api_response(error='Booking not found', code='NOT_FOUND', status=404)
 
             if row['status'] != 'awaiting_owner':
-                return jsonify({
-                    'ok': False,
-                    'error': f"Booking is in '{row['status']}' state, not awaiting_owner"
-                }), 409
+                return api_response(
+                    error=f"Booking is in '{row['status']}' state, not awaiting_owner",
+                    code='INVALID_STATE', status=409
+                )
 
             # ── Delete tentative calendar event before declining ──
             try:
@@ -449,7 +450,7 @@ def register(bp, require_auth):
 
             success = state.decline_booking(booking_id)
             if not success:
-                return jsonify({'ok': False, 'error': 'Could not decline booking'}), 409
+                return api_response(error='Could not decline booking', code='CONFLICT', status=409)
 
             details = {'triggered_by': 'admin_dashboard'}
             if reason:
@@ -459,11 +460,11 @@ def register(bp, require_auth):
                 booking_id, 'declined', actor='owner_ui', details=details
             )
             logger.info("Admin declined booking %s (reason: %s)", booking_id, reason or 'none')
-            return jsonify({'ok': True})
+            return api_response()
 
         except Exception:
             logger.exception("decline_booking failed for %s", booking_id)
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # POST /api/bookings/<booking_id>/edit
@@ -474,7 +475,7 @@ def register(bp, require_auth):
         try:
             body = request.get_json(silent=True) or {}
             if not body:
-                return jsonify({'ok': False, 'error': 'Request body is required'}), 400
+                return api_response(error='Request body is required', code='VALIDATION_ERROR', status=400)
 
             state = StateManager()
 
@@ -485,7 +486,7 @@ def register(bp, require_auth):
                 ).fetchone()
 
             if not row:
-                return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+                return api_response(error='Booking not found', code='NOT_FOUND', status=404)
 
             status = row['status']
 
@@ -497,7 +498,7 @@ def register(bp, require_auth):
             # Validate and merge incoming fields
             err = _validate_booking_data(body)
             if err:
-                return jsonify({'ok': False, 'error': err}), 400
+                return api_response(error=err, code='VALIDATION_ERROR', status=400)
             merged = {**existing_data, **body}
 
             if status == 'awaiting_owner':
@@ -563,11 +564,11 @@ def register(bp, require_auth):
                 details={'updated_fields': list(body.keys())}
             )
             logger.info("Admin edited booking %s fields: %s", booking_id, list(body.keys()))
-            return jsonify({'ok': True, 'booking_data': merged})
+            return api_response(data={'booking_data': merged})
 
         except Exception:
             logger.exception("edit_booking failed for %s", booking_id)
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # POST /api/bookings/<booking_id>/notes
@@ -580,7 +581,7 @@ def register(bp, require_auth):
             note = (body.get('note') or '').strip()
 
             if not note:
-                return jsonify({'ok': False, 'error': "'note' field is required"}), 400
+                return api_response(error="'note' field is required", code='VALIDATION_ERROR', status=400)
 
             state = StateManager()
 
@@ -590,18 +591,18 @@ def register(bp, require_auth):
                 ).fetchone()
 
             if not exists:
-                return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+                return api_response(error='Booking not found', code='NOT_FOUND', status=404)
 
             state.log_booking_event(
                 booking_id, 'note', actor='owner_ui',
                 details={'text': note}
             )
             logger.info("Admin added note to booking %s", booking_id)
-            return jsonify({'ok': True})
+            return api_response()
 
         except Exception:
             logger.exception("add_booking_note failed for %s", booking_id)
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # POST /api/bookings/bulk — bulk confirm/decline
@@ -615,21 +616,15 @@ def register(bp, require_auth):
             ids = body.get('ids', [])
 
             if action not in ('confirm', 'decline'):
-                return jsonify({
-                    'ok': False,
-                    'error': "action must be 'confirm' or 'decline'"
-                }), 400
+                return api_response(error="action must be 'confirm' or 'decline'", code='VALIDATION_ERROR', status=400)
 
             if not isinstance(ids, list) or not ids:
-                return jsonify({'ok': False, 'error': "'ids' must be a non-empty list"}), 400
+                return api_response(error="'ids' must be a non-empty list", code='VALIDATION_ERROR', status=400)
 
             # Cap bulk operations to prevent runaway requests
             MAX_BULK = 200
             if len(ids) > MAX_BULK:
-                return jsonify({
-                    'ok': False,
-                    'error': f"Cannot process more than {MAX_BULK} bookings at once"
-                }), 400
+                return api_response(error=f"Cannot process more than {MAX_BULK} bookings at once", code='VALIDATION_ERROR', status=400)
 
             state = StateManager()
             processed = 0
@@ -708,11 +703,11 @@ def register(bp, require_auth):
             logger.info(
                 "Bulk %s: processed=%d errors=%d", action, processed, len(errors)
             )
-            return jsonify({'ok': True, 'processed': processed, 'errors': errors})
+            return api_response(data={'processed': processed, 'errors': errors})
 
         except Exception:
             logger.exception("bulk_action failed")
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # POST /api/bookings/<booking_id>/mark-moved
@@ -734,7 +729,7 @@ def register(bp, require_auth):
                 ).fetchone()
 
             if not row:
-                return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+                return api_response(error='Booking not found', code='NOT_FOUND', status=404)
 
             try:
                 booking_data = json.loads(row['booking_data']) if row['booking_data'] else {}
@@ -775,11 +770,11 @@ def register(bp, require_auth):
             )
             logger.info("Admin marked booking %s as moved (old=%s/%s new=%s/%s)",
                          booking_id, original_date, original_time, new_date, new_time)
-            return jsonify({'ok': True})
+            return api_response()
 
         except Exception:
             logger.exception("mark_booking_moved failed for %s", booking_id)
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
     # ------------------------------------------------------------------
     # POST /api/bookings/<booking_id>/send-change-notification
@@ -797,7 +792,7 @@ def register(bp, require_auth):
                 ).fetchone()
 
             if not row:
-                return jsonify({'ok': False, 'error': 'Booking not found'}), 404
+                return api_response(error='Booking not found', code='NOT_FOUND', status=404)
 
             try:
                 booking_data = json.loads(row['booking_data']) if row['booking_data'] else {}
@@ -805,7 +800,7 @@ def register(bp, require_auth):
                 booking_data = {}
 
             if not booking_data.get('moved_pending_notification'):
-                return jsonify({'ok': False, 'error': 'No pending move to notify'})
+                return api_response(error='No pending move to notify', code='NO_PENDING_MOVE', status=400)
 
             customer_email = row['customer_email'] or booking_data.get('customer_email')
             thread_id = row['thread_id']
@@ -886,11 +881,11 @@ def register(bp, require_auth):
                 details={'email_sent': email_sent}
             )
             logger.info("Change notification processed for booking %s (email_sent=%s)", booking_id, email_sent)
-            return jsonify({'ok': True, 'email_sent': email_sent})
+            return api_response(data={'email_sent': email_sent})
 
         except Exception:
             logger.exception("send_change_notification failed for %s", booking_id)
-            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+            return api_response(error='Internal server error', code='INTERNAL_ERROR', status=500)
 
 
 # ---------------------------------------------------------------------------

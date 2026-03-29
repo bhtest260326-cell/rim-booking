@@ -2,6 +2,7 @@ import re
 import logging
 
 from flask import Blueprint, jsonify, request
+from admin_pro.api import api_response
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +52,10 @@ def register(bp, require_auth):
                     }
                 )
 
-            return jsonify({"messages": messages, "error": None})
+            return api_response(data={"messages": messages})
         except Exception:
             logger.exception("comms_gmail error detail")
-            return jsonify({"messages": [], "error": "Gmail unavailable"}), 503
+            return api_response(error="Gmail unavailable", code="SERVICE_UNAVAILABLE", status=503)
 
     # ------------------------------------------------------------------
     # GET /api/comms/dlq
@@ -84,10 +85,10 @@ def register(bp, require_auth):
                 }
                 for row in rows
             ]
-            return jsonify({"entries": entries})
+            return api_response(data={"entries": entries})
         except Exception:
             logger.exception("comms_dlq error")
-            return jsonify({"entries": [], "error": "Failed to fetch DLQ entries"})
+            return api_response(error="Failed to fetch DLQ entries", code="INTERNAL_ERROR", status=500)
 
     # ------------------------------------------------------------------
     # POST /api/comms/dlq/<msg_id>/dismiss
@@ -103,10 +104,10 @@ def register(bp, require_auth):
                     "UPDATE failed_extractions SET owner_notified=1 WHERE gmail_msg_id=?",
                     (msg_id,),
                 )
-            return jsonify({"ok": True})
+            return api_response()
         except Exception:
             logger.exception("comms_dlq_dismiss error for %s", msg_id)
-            return jsonify({"ok": False, "error": "Failed to dismiss entry"})
+            return api_response(error="Failed to dismiss entry", code="INTERNAL_ERROR", status=500)
 
     # ------------------------------------------------------------------
     # POST /api/comms/sms
@@ -120,20 +121,20 @@ def register(bp, require_auth):
             message = body.get("message", "").strip()
 
             if not to or not message:
-                return jsonify({"ok": False, "error": "Both 'to' and 'message' are required"}), 400
+                return api_response(error="Both 'to' and 'message' are required", code="VALIDATION_ERROR", status=400)
 
             if not re.match(r'^\+?61[45]\d{8}$', to.replace(' ', '')):
-                return jsonify({"ok": False, "error": "Invalid Australian mobile number"}), 400
+                return api_response(error="Invalid Australian mobile number", code="VALIDATION_ERROR", status=400)
             if len(message) > 1600:
-                return jsonify({"ok": False, "error": "Message too long (max 1600 chars)"}), 400
+                return api_response(error="Message too long (max 1600 chars)", code="VALIDATION_ERROR", status=400)
 
             from twilio_handler import send_sms
 
             send_sms(to, message)
-            return jsonify({"ok": True})
+            return api_response()
         except Exception:
             logger.exception("comms_send_sms error")
-            return jsonify({"ok": False, "error": "Failed to send SMS"})
+            return api_response(error="Failed to send SMS", code="INTERNAL_ERROR", status=500)
 
     # ------------------------------------------------------------------
     # GET /api/comms/clarifications
@@ -160,10 +161,10 @@ def register(bp, require_auth):
                 }
                 for row in rows
             ]
-            return jsonify({"clarifications": clarifications})
+            return api_response(data={"clarifications": clarifications})
         except Exception:
             logger.exception("comms_clarifications error")
-            return jsonify({"clarifications": [], "error": "Failed to fetch clarifications"})
+            return api_response(error="Failed to fetch clarifications", code="INTERNAL_ERROR", status=500)
 
     # ------------------------------------------------------------------
     # GET /api/comms/waitlist
@@ -190,10 +191,10 @@ def register(bp, require_auth):
                 }
                 for row in rows
             ]
-            return jsonify({"waitlist": waitlist})
+            return api_response(data={"waitlist": waitlist})
         except Exception:
             logger.exception("comms_waitlist error")
-            return jsonify({"waitlist": [], "error": "Failed to fetch waitlist"})
+            return api_response(error="Failed to fetch waitlist", code="INTERNAL_ERROR", status=500)
 
     # ------------------------------------------------------------------
     # POST /api/comms/waitlist/<waitlist_id>/notify
@@ -209,10 +210,10 @@ def register(bp, require_auth):
                     "UPDATE waitlist SET notified=1 WHERE id=?",
                     (waitlist_id,),
                 )
-            return jsonify({"ok": True})
+            return api_response()
         except Exception:
             logger.exception("comms_waitlist_notify error for id %s", waitlist_id)
-            return jsonify({"ok": False, "error": "Failed to update waitlist entry"})
+            return api_response(error="Failed to update waitlist entry", code="INTERNAL_ERROR", status=500)
 
     # ------------------------------------------------------------------
     # GET /api/comms/sms/log
@@ -234,9 +235,9 @@ def register(bp, require_auth):
                     (limit,),
                 ).fetchall()
             logs = [dict(row) for row in rows]
-            return jsonify({"logs": logs})
+            return api_response(data={"logs": logs})
         except Exception:
-            return jsonify({"logs": []})
+            return api_response(data={"logs": []})
 
     # ------------------------------------------------------------------
     # GET /api/comms/activity
@@ -276,10 +277,10 @@ def register(bp, require_auth):
                 }
                 for row in rows
             ]
-            return jsonify({"events": events})
+            return api_response(data={"events": events})
         except Exception:
             logger.exception("comms_activity error")
-            return jsonify({"events": [], "error": "Failed to fetch activity"})
+            return api_response(error="Failed to fetch activity", code="INTERNAL_ERROR", status=500)
 
 
 # Self-registration when module is imported directly

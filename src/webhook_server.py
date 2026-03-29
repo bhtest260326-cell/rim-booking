@@ -96,6 +96,38 @@ def create_app():
     else:
         logger.info("Pub/Sub JWT verification: DISABLED (PUBSUB_AUDIENCE not set — local dev mode)")
 
+    # ------------------------------------------------------------------
+    # Request logging middleware
+    # ------------------------------------------------------------------
+    _req_logger = logging.getLogger('request_logger')
+
+    @app.before_request
+    def _log_request_start():
+        request._start_time = time.monotonic()
+        _req_logger.info(
+            "request_start",
+            extra={
+                "method": request.method,
+                "path": request.path,
+                "content_length": request.content_length,
+            },
+        )
+
+    @app.after_request
+    def _log_request_end(response):
+        start = getattr(request, '_start_time', None)
+        duration_ms = round((time.monotonic() - start) * 1000, 2) if start else None
+        _req_logger.info(
+            "request_end",
+            extra={
+                "method": request.method,
+                "path": request.path,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+            },
+        )
+        return response
+
     from admin_ui import admin_bp
     app.register_blueprint(admin_bp)
 
