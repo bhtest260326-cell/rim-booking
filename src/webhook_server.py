@@ -157,6 +157,7 @@ def create_app():
         from state_manager import StateManager
         from maps_handler import get_week_availability, get_job_duration_minutes, _is_business_day
         import json, calendar as _cal
+        from html import escape as _esc
         from datetime import datetime as _dt, timedelta as _td, date as _date
 
         booking_id = verify_reschedule_token(token)
@@ -209,8 +210,8 @@ def create_app():
         )
         avail_map = {s['date']: s['available'] for s in avail_data}
 
-        customer_name = (bd.get('customer_name') or 'there').split()[0]
-        current_date = bd.get('preferred_date', 'Unknown')
+        customer_name = _esc((bd.get('customer_name') or 'there').split()[0])
+        current_date = _esc(bd.get('preferred_date', 'Unknown'))
         month_label = view_first.strftime('%B %Y')
 
         # Build calendar grid (Sunday-first, 7 columns)
@@ -332,6 +333,7 @@ def create_app():
     def reschedule_confirm(token, new_date):
         """Confirm the reschedule to the selected date."""
         import re, json
+        from html import escape as _esc2
         from email_utils import verify_reschedule_token
         from state_manager import StateManager
         from feature_flags import get_flag
@@ -394,11 +396,11 @@ def create_app():
         from datetime import datetime as _dt2
 
         try:
-            new_date_fmt = _dt2.strptime(new_date, '%Y-%m-%d').strftime('%A, %d %B %Y').replace(' 0', ' ')
+            new_date_fmt = _esc2(_dt2.strptime(new_date, '%Y-%m-%d').strftime('%A, %d %B %Y').replace(' 0', ' '))
         except Exception:
-            new_date_fmt = new_date
+            new_date_fmt = _esc2(new_date)
 
-        customer_name = (bd.get('customer_name') or 'there').split()[0]
+        customer_name = _esc2((bd.get('customer_name') or 'there').split()[0])
 
         reschedule_again_para = ''
         try:

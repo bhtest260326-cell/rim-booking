@@ -103,45 +103,50 @@ async function loadActivity() {
   const feed = document.getElementById('activity-feed');
   if (!feed) return;
 
-  let url = `/v2/api/comms/activity?limit=${ACTIVITY_STATE.limit}`;
-  const data = await apiFetch(url);
-  const events = data.data?.events || [];
+  try {
+    let url = `/v2/api/comms/activity?limit=${ACTIVITY_STATE.limit}`;
+    const data = await apiFetch(url);
+    const events = data.events || [];
 
-  // Filter client-side so switching filters is instant with no
-  // extra network round-trips.
-  const filtered = ACTIVITY_STATE.filter === 'all' ? events :
-    events.filter(e => e.event_type === ACTIVITY_STATE.filter);
+    // Filter client-side so switching filters is instant with no
+    // extra network round-trips.
+    const filtered = ACTIVITY_STATE.filter === 'all' ? events :
+      events.filter(e => e.event_type === ACTIVITY_STATE.filter);
 
-  if (filtered.length === 0) {
-    feed.innerHTML = '<div class="ap-text-muted" style="padding:24px;text-align:center">No events found</div>';
-    return;
+    if (filtered.length === 0) {
+      feed.innerHTML = '<div class="ap-text-muted" style="padding:24px;text-align:center">No events found</div>';
+      return;
+    }
+
+    feed.innerHTML = filtered.map((event, idx) => `
+      <div class="ap-activity-item ap-animate-in" style="animation-delay:${idx * 30}ms">
+        <div class="ap-activity-timeline">
+          <div class="ap-activity-dot ${getEventColor(event.event_type)}">${getEventIcon(event.event_type)}</div>
+          ${idx < filtered.length - 1 ? '<div class="ap-activity-line"></div>' : ''}
+        </div>
+        <div class="ap-activity-content">
+          <div class="ap-activity-header">
+            <strong class="ap-activity-type">${formatEventType(event.event_type)}</strong>
+            <span class="ap-text-muted" style="font-size:12px">${relativeTime(event.created_at)}</span>
+          </div>
+          <div class="ap-activity-meta">
+            ${event.customer_email ? `<span class="ap-text-dim">${escapeHtml(event.customer_email)}</span>` : ''}
+            <span class="ap-badge ap-badge-blue" style="font-size:11px;cursor:pointer"
+                  onclick="openBookingDetail('${event.booking_id}')">${event.booking_id?.substring(0,8)}…</span>
+            ${event.actor !== 'system' ? `<span class="ap-badge ap-badge-purple" style="font-size:11px">${escapeHtml(event.actor)}</span>` : ''}
+          </div>
+          ${formatEventDetails(event.details) || ''}
+        </div>
+      </div>
+    `).join('');
+
+    // Update last-refreshed timestamp shown in the section header.
+    const ts = document.getElementById('activity-last-updated');
+    if (ts) ts.textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch (err) {
+    console.error('loadActivity error:', err);
+    feed.innerHTML = '<div class="ap-text-muted" style="padding:24px;text-align:center">Failed to load activity feed.</div>';
   }
-
-  feed.innerHTML = filtered.map((event, idx) => `
-    <div class="ap-activity-item ap-animate-in" style="animation-delay:${idx * 30}ms">
-      <div class="ap-activity-timeline">
-        <div class="ap-activity-dot ${getEventColor(event.event_type)}">${getEventIcon(event.event_type)}</div>
-        ${idx < filtered.length - 1 ? '<div class="ap-activity-line"></div>' : ''}
-      </div>
-      <div class="ap-activity-content">
-        <div class="ap-activity-header">
-          <strong class="ap-activity-type">${formatEventType(event.event_type)}</strong>
-          <span class="ap-text-muted" style="font-size:12px">${relativeTime(event.created_at)}</span>
-        </div>
-        <div class="ap-activity-meta">
-          ${event.customer_email ? `<span class="ap-text-dim">${escapeHtml(event.customer_email)}</span>` : ''}
-          <span class="ap-badge ap-badge-blue" style="font-size:11px;cursor:pointer"
-                onclick="openBookingDetail('${event.booking_id}')">${event.booking_id?.substring(0,8)}…</span>
-          ${event.actor !== 'system' ? `<span class="ap-badge ap-badge-purple" style="font-size:11px">${event.actor}</span>` : ''}
-        </div>
-        ${formatEventDetails(event.details) || ''}
-      </div>
-    </div>
-  `).join('');
-
-  // Update last-refreshed timestamp shown in the section header.
-  const ts = document.getElementById('activity-last-updated');
-  if (ts) ts.textContent = 'Updated ' + new Date().toLocaleTimeString();
 }
 
 // ── Event Formatting Helpers ──────────────────────────────────

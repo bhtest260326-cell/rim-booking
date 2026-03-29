@@ -19,38 +19,48 @@ async function initCalendar() {
 }
 
 async function loadCalendarData() {
+  // Reset bookings — even if fetch fails the calendar still renders empty
+  CAL_STATE.bookingsByDate = {};
+
   // Calculate date range for current month view
   const firstDay = new Date(CAL_STATE.year, CAL_STATE.month, 1);
   const lastDay  = new Date(CAL_STATE.year, CAL_STATE.month + 1, 0);
   const dateFrom = firstDay.toISOString().split('T')[0];
   const dateTo   = lastDay.toISOString().split('T')[0];
 
-  // Load confirmed bookings
-  const data = await apiFetch(
-    `/v2/api/bookings?status=confirmed&date_from=${dateFrom}&date_to=${dateTo}&per_page=200`
-  );
+  try {
+    // Load confirmed bookings
+    const data = await apiFetch(
+      `/v2/api/bookings?status=confirmed&date_from=${dateFrom}&date_to=${dateTo}&per_page=200`
+    );
 
-  // Group by preferred_date
-  CAL_STATE.bookingsByDate = {};
-  (data.bookings || []).forEach(b => {
-    const d = (b.booking_data && b.booking_data.preferred_date) || b.preferred_date;
-    if (d) {
-      if (!CAL_STATE.bookingsByDate[d]) CAL_STATE.bookingsByDate[d] = [];
-      CAL_STATE.bookingsByDate[d].push(b);
-    }
-  });
+    // Group by preferred_date
+    (data.bookings || []).forEach(b => {
+      const d = (b.booking_data && b.booking_data.preferred_date) || b.preferred_date;
+      if (d) {
+        if (!CAL_STATE.bookingsByDate[d]) CAL_STATE.bookingsByDate[d] = [];
+        CAL_STATE.bookingsByDate[d].push(b);
+      }
+    });
+  } catch (err) {
+    console.warn('Calendar: failed to load confirmed bookings:', err.message);
+  }
 
-  // Also load pending (awaiting_owner)
-  const pendingData = await apiFetch(
-    `/v2/api/bookings?status=awaiting_owner&date_from=${dateFrom}&date_to=${dateTo}&per_page=200`
-  );
-  (pendingData.bookings || []).forEach(b => {
-    const d = (b.booking_data && b.booking_data.preferred_date) || b.preferred_date;
-    if (d) {
-      if (!CAL_STATE.bookingsByDate[d]) CAL_STATE.bookingsByDate[d] = [];
-      CAL_STATE.bookingsByDate[d].push(b);
-    }
-  });
+  try {
+    // Also load pending (awaiting_owner)
+    const pendingData = await apiFetch(
+      `/v2/api/bookings?status=awaiting_owner&date_from=${dateFrom}&date_to=${dateTo}&per_page=200`
+    );
+    (pendingData.bookings || []).forEach(b => {
+      const d = (b.booking_data && b.booking_data.preferred_date) || b.preferred_date;
+      if (d) {
+        if (!CAL_STATE.bookingsByDate[d]) CAL_STATE.bookingsByDate[d] = [];
+        CAL_STATE.bookingsByDate[d].push(b);
+      }
+    });
+  } catch (err) {
+    console.warn('Calendar: failed to load pending bookings:', err.message);
+  }
 }
 
 // ── Calendar Header ──────────────────────────────────────────
@@ -78,10 +88,26 @@ function calNavMonth(dir) {
   initCalendar();
 }
 
+// Alias used by HTML buttons
+function calendarNav(dir) { calNavMonth(dir); }
+
 function calGoToday() {
   CAL_STATE.year  = new Date().getFullYear();
   CAL_STATE.month = new Date().getMonth();
   initCalendar();
+}
+
+// Alias used by HTML
+function goToToday() { calGoToday(); }
+
+function setCalendarView(view) {
+  CAL_STATE.view = view;
+  // Update pill active state
+  ['month', 'week'].forEach(v => {
+    const btn = document.getElementById('cal-view-' + v);
+    if (btn) btn.classList.toggle('active', v === view);
+  });
+  renderCalendar();
 }
 
 // ── Month Grid ───────────────────────────────────────────────

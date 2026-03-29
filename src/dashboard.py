@@ -39,12 +39,19 @@ def _load_cfg():
                 return json.load(f)
     except Exception:
         pass
-    return {'railway_url': '', 'admin_token': ''}
+    return {'railway_url': '', 'admin_token': '', 'admin_username': 'admin', 'admin_password': ''}
 
 
 def _save_cfg(d):
     with open(CONFIG_PATH, 'w') as f:
         json.dump(d, f, indent=2)
+
+
+def _railway_auth(cfg):
+    """Return (username, password) tuple for Basic Auth, or None if not configured."""
+    username = cfg.get('admin_username', '').strip()
+    password = cfg.get('admin_password', '').strip()
+    return (username, password) if password else None
 
 
 # ── Data layer ──────────────────────────────────────────────────────────────
@@ -104,11 +111,11 @@ def _local_data():
     }
 
 
-def _railway_data(url, token):
+def _railway_data(url, token, auth=None):
     try:
         import requests
         qs = f'?token={token}' if token else ''
-        r  = requests.get(f'{url}/admin/api/data{qs}', timeout=8)
+        r  = requests.get(f'{url}/admin/api/data{qs}', auth=auth, timeout=8)
         if r.status_code == 200:
             d = r.json()
             d['mode']  = 'Railway (live)'
@@ -132,7 +139,7 @@ def get_data():
     url   = cfg.get('railway_url', '').strip().rstrip('/')
     token = cfg.get('admin_token', '').strip()
     if url:
-        return _railway_data(url, token)
+        return _railway_data(url, token, auth=_railway_auth(cfg))
     try:
         return _local_data()
     except Exception as e:
@@ -338,6 +345,10 @@ input:checked+.slider:before{transform:translateX(21px);}
         <input class="form-input" id="inp-url" placeholder="https://your-app.railway.app" type="url"></div>
       <div><label class="form-label">Admin Token</label>
         <input class="form-input" id="inp-token" placeholder="ADMIN_TOKEN value" type="password"></div>
+      <div><label class="form-label">Admin Username</label>
+        <input class="form-input" id="inp-username" placeholder="admin" type="text"></div>
+      <div><label class="form-label">Admin Password</label>
+        <input class="form-input" id="inp-password" placeholder="ADMIN_PASSWORD value" type="password"></div>
     </div>
     <button class="btn-save" onclick="saveSetup()">Save &amp; Connect</button>
     <button class="btn-clear" onclick="clearSetup()">Clear (use local database)</button>
@@ -546,16 +557,20 @@ function toggleSetup() {
   document.getElementById('setup-panel').style.display = _setupVisible ? '' : 'none';
   if (_setupVisible) {
     fetch('/config').then(r => r.json()).then(cfg => {
-      document.getElementById('inp-url').value   = cfg.railway_url  || '';
-      document.getElementById('inp-token').value = cfg.admin_token  || '';
+      document.getElementById('inp-url').value      = cfg.railway_url    || '';
+      document.getElementById('inp-token').value    = cfg.admin_token    || '';
+      document.getElementById('inp-username').value = cfg.admin_username || 'admin';
+      document.getElementById('inp-password').value = cfg.admin_password || '';
     });
   }
 }
 
 async function saveSetup() {
   const body = {
-    railway_url: document.getElementById('inp-url').value.trim().replace(/\/+$/,''),
-    admin_token: document.getElementById('inp-token').value.trim(),
+    railway_url:    document.getElementById('inp-url').value.trim().replace(/\/+$/,''),
+    admin_token:    document.getElementById('inp-token').value.trim(),
+    admin_username: document.getElementById('inp-username').value.trim() || 'admin',
+    admin_password: document.getElementById('inp-password').value.trim(),
   };
   await fetch('/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   toggleSetup();
@@ -563,7 +578,7 @@ async function saveSetup() {
 }
 
 async function clearSetup() {
-  await fetch('/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({railway_url:'',admin_token:''})});
+  await fetch('/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({railway_url:'',admin_token:'',admin_username:'admin',admin_password:''})});
   toggleSetup();
   refreshAll();
 }
@@ -812,7 +827,7 @@ def api_gmail():
     try:
         import requests as _req
         qs = f'?token={token}' if token else ''
-        r  = _req.get(f'{url}/admin/api/gmail{qs}', timeout=12)
+        r  = _req.get(f'{url}/admin/api/gmail{qs}', auth=_railway_auth(cfg), timeout=12)
         if r.status_code == 200:
             return jsonify(r.json())
         return jsonify({'messages': [], 'error': f'Railway returned {r.status_code}'})
@@ -829,7 +844,7 @@ def api_confirm_booking(booking_id):
         try:
             import requests as _req
             qs = f'?token={token}' if token else ''
-            r  = _req.post(f'{url}/admin/api/booking/{booking_id}/confirm{qs}', timeout=12)
+            r  = _req.post(f'{url}/admin/api/booking/{booking_id}/confirm{qs}', auth=_railway_auth(cfg), timeout=12)
             if r.status_code == 200:
                 return jsonify(r.json())
             return jsonify({'error': f'Railway returned {r.status_code}'}), r.status_code
@@ -858,7 +873,7 @@ def api_decline_booking(booking_id):
         try:
             import requests as _req
             qs = f'?token={token}' if token else ''
-            r  = _req.post(f'{url}/admin/api/booking/{booking_id}/decline{qs}', timeout=12)
+            r  = _req.post(f'{url}/admin/api/booking/{booking_id}/decline{qs}', auth=_railway_auth(cfg), timeout=12)
             if r.status_code == 200:
                 return jsonify(r.json())
             return jsonify({'error': f'Railway returned {r.status_code}'}), r.status_code
@@ -888,7 +903,7 @@ def api_booking_add_note(booking_id):
             import requests as _req
             qs = f'?token={token}' if token else ''
             r  = _req.post(f'{url}/admin/api/booking/{booking_id}/notes{qs}',
-                           json=request.get_json(silent=True) or {}, timeout=12)
+                           json=request.get_json(silent=True) or {}, auth=_railway_auth(cfg), timeout=12)
             if r.status_code == 200:
                 return jsonify(r.json())
             return jsonify({'error': f'Railway returned {r.status_code}'}), r.status_code
@@ -918,7 +933,7 @@ def api_booking_edit(booking_id):
             import requests as _req
             qs = f'?token={token}' if token else ''
             r  = _req.post(f'{url}/admin/api/booking/{booking_id}/edit{qs}',
-                           json=request.get_json(silent=True) or {}, timeout=12)
+                           json=request.get_json(silent=True) or {}, auth=_railway_auth(cfg), timeout=12)
             if r.status_code == 200:
                 return jsonify(r.json())
             return jsonify({'error': f'Railway returned {r.status_code}'}), r.status_code
@@ -965,7 +980,7 @@ def api_booking_decline_with_reason(booking_id):
             import requests as _req
             qs = f'?token={token}' if token else ''
             r  = _req.post(f'{url}/admin/api/booking/{booking_id}/decline-with-reason{qs}',
-                           json=request.get_json(silent=True) or {}, timeout=12)
+                           json=request.get_json(silent=True) or {}, auth=_railway_auth(cfg), timeout=12)
             if r.status_code == 200:
                 return jsonify(r.json())
             return jsonify({'error': f'Railway returned {r.status_code}'}), r.status_code
@@ -1012,7 +1027,7 @@ def api_analytics():
         try:
             import requests as _req
             qs = f'?token={token}' if token else ''
-            r  = _req.get(f'{url}/admin/api/analytics{qs}', timeout=12)
+            r  = _req.get(f'{url}/admin/api/analytics{qs}', auth=_railway_auth(cfg), timeout=12)
             if r.status_code == 200:
                 return jsonify(r.json())
             return jsonify({'error': f'Railway returned {r.status_code}'}), r.status_code
@@ -1102,7 +1117,7 @@ def toggle():
             qs = f'?token={token}' if token else ''
             # Use the JSON toggle API on Railway
             r = _req.post(f'{url}/admin/api/toggle{qs}',
-                          json={'key': key}, timeout=8)
+                          json={'key': key}, auth=_railway_auth(cfg), timeout=8)
             if r.status_code == 200:
                 return jsonify(r.json())
             return jsonify({'success': False, 'error': f'Railway {r.status_code}'}), 502
@@ -1123,8 +1138,10 @@ def config():
     if request.method == 'POST':
         body = request.get_json(silent=True) or {}
         _save_cfg({
-            'railway_url':  body.get('railway_url', ''),
-            'admin_token':  body.get('admin_token', ''),
+            'railway_url':      body.get('railway_url', ''),
+            'admin_token':      body.get('admin_token', ''),
+            'admin_username':   body.get('admin_username', 'admin'),
+            'admin_password':   body.get('admin_password', ''),
         })
         return jsonify({'ok': True})
     return jsonify(_load_cfg())

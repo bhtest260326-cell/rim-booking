@@ -55,8 +55,7 @@ def _week_label(dt):
 # ---------------------------------------------------------------------------
 
 def _overview():
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         # Total bookings and status breakdown
         rows = conn.execute(
             "SELECT status, COUNT(*) AS cnt FROM bookings GROUP BY status"
@@ -114,19 +113,17 @@ def _overview():
             "SELECT COUNT(DISTINCT customer_email) FROM bookings WHERE customer_email IS NOT NULL"
         ).fetchone()[0]
 
-        return jsonify({
-            "total_bookings": total,
-            "confirmed": confirmed,
-            "declined": declined,
-            "pending": pending,
-            "conversion_rate": conversion_rate,
-            "today_jobs": today_jobs,
-            "this_week_confirmed": this_week_confirmed,
-            "avg_confirm_hours": avg_confirm_hours,
-            "total_customers": total_customers,
-        })
-    finally:
-        conn.close()
+    return jsonify({
+        "total_bookings": total,
+        "confirmed": confirmed,
+        "declined": declined,
+        "pending": pending,
+        "conversion_rate": conversion_rate,
+        "today_jobs": today_jobs,
+        "this_week_confirmed": this_week_confirmed,
+        "avg_confirm_hours": avg_confirm_hours,
+        "total_customers": total_customers,
+    })
 
 
 def _trends():
@@ -137,49 +134,45 @@ def _trends():
     except (ValueError, TypeError):
         weeks = 8
 
-    conn = _get_conn()
-    try:
-        now = datetime.now(timezone.utc)
-        # Build bucket boundaries: [weeks] complete weeks, most recent last
-        buckets = []
-        for i in range(weeks - 1, -1, -1):
-            # Monday of the week that was i weeks ago
-            start_of_this_week = now - timedelta(days=now.weekday())
-            bucket_monday = start_of_this_week - timedelta(weeks=i)
-            bucket_monday = bucket_monday.replace(hour=0, minute=0, second=0, microsecond=0)
-            bucket_sunday = bucket_monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
-            buckets.append((bucket_monday, bucket_sunday))
+    now = datetime.now(timezone.utc)
+    # Build bucket boundaries: [weeks] complete weeks, most recent last
+    buckets = []
+    for i in range(weeks - 1, -1, -1):
+        # Monday of the week that was i weeks ago
+        start_of_this_week = now - timedelta(days=now.weekday())
+        bucket_monday = start_of_this_week - timedelta(weeks=i)
+        bucket_monday = bucket_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+        bucket_sunday = bucket_monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        buckets.append((bucket_monday, bucket_sunday))
 
+    with _get_conn() as conn:
         # Fetch all confirmed bookings with a preferred_date
         rows = conn.execute(
             """SELECT preferred_date FROM bookings
                WHERE status='confirmed' AND preferred_date IS NOT NULL"""
         ).fetchall()
 
-        # Count per bucket
-        counts = [0] * weeks
-        for r in rows:
-            try:
-                bdate = datetime.strptime(r["preferred_date"], "%Y-%m-%d").replace(
-                    tzinfo=timezone.utc
-                )
-                for idx, (bstart, bend) in enumerate(buckets):
-                    if bstart <= bdate <= bend:
-                        counts[idx] += 1
-                        break
-            except (ValueError, AttributeError):
-                pass
+    # Count per bucket
+    counts = [0] * weeks
+    for r in rows:
+        try:
+            bdate = datetime.strptime(r["preferred_date"], "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            )
+            for idx, (bstart, bend) in enumerate(buckets):
+                if bstart <= bdate <= bend:
+                    counts[idx] += 1
+                    break
+        except (ValueError, AttributeError):
+            pass
 
-        labels = [_week_label(start) for start, _ in buckets]
+    labels = [_week_label(start) for start, _ in buckets]
 
-        return jsonify({"labels": labels, "counts": counts, "weeks": weeks})
-    finally:
-        conn.close()
+    return jsonify({"labels": labels, "counts": counts, "weeks": weeks})
 
 
 def _funnel():
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         emails_received = conn.execute(
             "SELECT COUNT(*) FROM processed_emails"
         ).fetchone()[0]
@@ -197,177 +190,163 @@ def _funnel():
             "SELECT COUNT(*) FROM bookings WHERE status='confirmed'"
         ).fetchone()[0]
 
-        return jsonify({
-            "stages": [
-                {"label": "Emails Received", "count": emails_received},
-                {"label": "Booking Extracted", "count": booking_extracted},
-                {"label": "Sent to Owner", "count": sent_to_owner},
-                {"label": "Confirmed", "count": confirmed},
-            ]
-        })
-    finally:
-        conn.close()
+    return jsonify({
+        "stages": [
+            {"label": "Emails Received", "count": emails_received},
+            {"label": "Booking Extracted", "count": booking_extracted},
+            {"label": "Sent to Owner", "count": sent_to_owner},
+            {"label": "Confirmed", "count": confirmed},
+        ]
+    })
 
 
 def _suburbs():
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         rows = conn.execute("SELECT booking_data FROM bookings").fetchall()
 
-        suburb_counts = {}
-        for r in rows:
-            bd = _parse_booking_data(r["booking_data"])
-            # Try several common field names for the location / suburb
-            suburb = (
-                bd.get("suburb")
-                or bd.get("address_suburb")
-                or bd.get("location_suburb")
-                or ""
-            )
-            if not suburb:
-                # Fall back to parsing suburb out of a full address string
-                address = bd.get("address") or bd.get("location") or ""
-                if address:
-                    # Use the last meaningful token before a postcode/state
-                    parts = [p.strip() for p in address.split(",") if p.strip()]
-                    suburb = parts[-1] if parts else ""
+    suburb_counts = {}
+    for r in rows:
+        bd = _parse_booking_data(r["booking_data"])
+        # Try several common field names for the location / suburb
+        suburb = (
+            bd.get("suburb")
+            or bd.get("address_suburb")
+            or bd.get("location_suburb")
+            or ""
+        )
+        if not suburb:
+            # Fall back to parsing suburb out of a full address string
+            address = bd.get("address") or bd.get("location") or ""
+            if address:
+                # Use the last meaningful token before a postcode/state
+                parts = [p.strip() for p in address.split(",") if p.strip()]
+                suburb = parts[-1] if parts else ""
 
-            if suburb:
-                suburb = suburb.strip().title()
-                suburb_counts[suburb] = suburb_counts.get(suburb, 0) + 1
+        if suburb:
+            suburb = suburb.strip().title()
+            suburb_counts[suburb] = suburb_counts.get(suburb, 0) + 1
 
-        top10 = sorted(suburb_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-        return jsonify({"suburbs": [{"name": name, "count": cnt} for name, cnt in top10]})
-    finally:
-        conn.close()
+    top10 = sorted(suburb_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    return jsonify({"suburbs": [{"name": name, "count": cnt} for name, cnt in top10]})
 
 
 def _services():
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         rows = conn.execute("SELECT booking_data FROM bookings").fetchall()
 
-        service_counts = {}
-        for r in rows:
-            bd = _parse_booking_data(r["booking_data"])
-            stype = bd.get("service_type") or "unknown"
-            stype = stype.strip().lower()
-            service_counts[stype] = service_counts.get(stype, 0) + 1
+    service_counts = {}
+    for r in rows:
+        bd = _parse_booking_data(r["booking_data"])
+        stype = bd.get("service_type") or "unknown"
+        stype = stype.strip().lower()
+        service_counts[stype] = service_counts.get(stype, 0) + 1
 
-        services = [
-            {
-                "type": stype,
-                "count": cnt,
-                "label": SERVICE_LABELS.get(stype, stype.replace("_", " ").title()),
-            }
-            for stype, cnt in sorted(service_counts.items(), key=lambda x: x[1], reverse=True)
-        ]
+    services = [
+        {
+            "type": stype,
+            "count": cnt,
+            "label": SERVICE_LABELS.get(stype, stype.replace("_", " ").title()),
+        }
+        for stype, cnt in sorted(service_counts.items(), key=lambda x: x[1], reverse=True)
+    ]
 
-        return jsonify({"services": services})
-    finally:
-        conn.close()
+    return jsonify({"services": services})
 
 
 def _revenue():
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         rows = conn.execute(
             "SELECT booking_data FROM bookings WHERE status='confirmed'"
         ).fetchall()
 
-        by_service = {}
-        for r in rows:
-            bd = _parse_booking_data(r["booking_data"])
-            stype = (bd.get("service_type") or "unknown").strip().lower()
-            price = PRICING.get(stype, 0)
-            if stype not in by_service:
-                by_service[stype] = {"count": 0, "revenue": 0.0}
-            by_service[stype]["count"] += 1
-            by_service[stype]["revenue"] += price
+    by_service = {}
+    for r in rows:
+        bd = _parse_booking_data(r["booking_data"])
+        stype = (bd.get("service_type") or "unknown").strip().lower()
+        price = PRICING.get(stype, 0)
+        if stype not in by_service:
+            by_service[stype] = {"count": 0, "revenue": 0.0}
+        by_service[stype]["count"] += 1
+        by_service[stype]["revenue"] += price
 
-        total_estimated = sum(v["revenue"] for v in by_service.values())
+    total_estimated = sum(v["revenue"] for v in by_service.values())
 
-        by_service_list = [
-            {
-                "type": stype,
-                "count": data["count"],
-                "revenue": round(data["revenue"], 2),
-            }
-            for stype, data in sorted(
-                by_service.items(), key=lambda x: x[1]["revenue"], reverse=True
-            )
-        ]
+    by_service_list = [
+        {
+            "type": stype,
+            "count": data["count"],
+            "revenue": round(data["revenue"], 2),
+        }
+        for stype, data in sorted(
+            by_service.items(), key=lambda x: x[1]["revenue"], reverse=True
+        )
+    ]
 
-        return jsonify({
-            "total_estimated": round(total_estimated, 2),
-            "by_service": by_service_list,
-            "currency": "AUD",
-        })
-    finally:
-        conn.close()
+    return jsonify({
+        "total_estimated": round(total_estimated, 2),
+        "by_service": by_service_list,
+        "currency": "AUD",
+    })
 
 
 def _heatmap():
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         rows = conn.execute(
             "SELECT booking_data, preferred_date FROM bookings"
         ).fetchall()
 
-        # dow (0=Mon … 6=Sun), hour -> count
-        freq = {}
-        for r in rows:
-            bd = _parse_booking_data(r["booking_data"])
-            preferred_time = bd.get("preferred_time") or ""
-            preferred_date = r["preferred_date"] or ""
+    # dow (0=Mon … 6=Sun), hour -> count
+    freq = {}
+    for r in rows:
+        bd = _parse_booking_data(r["booking_data"])
+        preferred_time = bd.get("preferred_time") or ""
+        preferred_date = r["preferred_date"] or ""
 
-            hour = None
+        hour = None
 
-            # Attempt to parse hour from preferred_time (e.g. "09:00", "9am", "14:30")
-            if preferred_time:
-                pt = preferred_time.strip()
-                # Try HH:MM format
+        # Attempt to parse hour from preferred_time (e.g. "09:00", "9am", "14:30")
+        if preferred_time:
+            pt = preferred_time.strip()
+            # Try HH:MM format
+            try:
+                hour = datetime.strptime(pt, "%H:%M").hour
+            except ValueError:
+                pass
+            # Try H:MM
+            if hour is None:
                 try:
-                    hour = datetime.strptime(pt, "%H:%M").hour
+                    hour = datetime.strptime(pt, "%I:%M %p").hour
                 except ValueError:
                     pass
-                # Try H:MM
-                if hour is None:
-                    try:
-                        hour = datetime.strptime(pt, "%I:%M %p").hour
-                    except ValueError:
-                        pass
-                # Try am/pm shorthand: "9am", "2pm"
-                if hour is None:
-                    pt_lower = pt.lower().replace(" ", "")
-                    try:
-                        if pt_lower.endswith("am"):
-                            hour = int(pt_lower[:-2]) % 12
-                        elif pt_lower.endswith("pm"):
-                            hour = (int(pt_lower[:-2]) % 12) + 12
-                    except (ValueError, AttributeError):
-                        pass
-
-            # Determine day-of-week from preferred_date
-            dow = None
-            if preferred_date:
+            # Try am/pm shorthand: "9am", "2pm"
+            if hour is None:
+                pt_lower = pt.lower().replace(" ", "")
                 try:
-                    dow = datetime.strptime(preferred_date, "%Y-%m-%d").weekday()
-                except ValueError:
+                    if pt_lower.endswith("am"):
+                        hour = int(pt_lower[:-2]) % 12
+                    elif pt_lower.endswith("pm"):
+                        hour = (int(pt_lower[:-2]) % 12) + 12
+                except (ValueError, AttributeError):
                     pass
 
-            if dow is not None and hour is not None:
-                key = (dow, hour)
-                freq[key] = freq.get(key, 0) + 1
+        # Determine day-of-week from preferred_date
+        dow = None
+        if preferred_date:
+            try:
+                dow = datetime.strptime(preferred_date, "%Y-%m-%d").weekday()
+            except ValueError:
+                pass
 
-        data = [
-            [dow, hour, count]
-            for (dow, hour), count in sorted(freq.items())
-        ]
+        if dow is not None and hour is not None:
+            key = (dow, hour)
+            freq[key] = freq.get(key, 0) + 1
 
-        return jsonify({"data": data})
-    finally:
-        conn.close()
+    data = [
+        [dow, hour, count]
+        for (dow, hour), count in sorted(freq.items())
+    ]
+
+    return jsonify({"data": data})
 
 
 # ---------------------------------------------------------------------------
@@ -380,9 +359,9 @@ def register(bp, require_auth):
     def analytics_overview():
         try:
             return _overview()
-        except Exception as exc:
+        except Exception:
             logger.exception("analytics_overview error")
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     @bp.route("/api/analytics/trends", methods=["GET"])
     @require_auth

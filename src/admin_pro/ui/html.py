@@ -156,12 +156,30 @@ HTML_TOPBAR = """
       </svg>
       <span class="ap-notif-count" id="ap-notif-count" style="display:none">0</span>
     </div>
-    <div class="ap-user-badge">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16" height="16" style="margin-right:5px">
+    <div class="ap-user-badge" id="ap-user-badge" onclick="toggleAdminDropdown(event)" title="Admin menu">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="1.8"/>
       </svg>
       Admin
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="margin-left:2px;opacity:0.6">
+        <polyline points="6,9 12,15 18,9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div class="ap-user-dropdown" id="ap-admin-dropdown" style="display:none" onclick="event.stopPropagation()">
+        <button class="ap-user-dropdown-item" onclick="showChangePasswordModal()">
+          <svg viewBox="0 0 24 24" fill="none" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Change Password
+        </button>
+        <button class="ap-user-dropdown-item" onclick="openDocumentation()">
+          <svg viewBox="0 0 24 24" fill="none" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.8"/><polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="1.8"/></svg>
+          Documentation
+        </button>
+        <hr class="ap-user-dropdown-divider">
+        <button class="ap-user-dropdown-item danger" onclick="adminLogout()">
+          <svg viewBox="0 0 24 24" fill="none" width="14" height="14"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="16,17 21,12 16,7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Logout
+        </button>
+      </div>
     </div>
   </div>
 </div>

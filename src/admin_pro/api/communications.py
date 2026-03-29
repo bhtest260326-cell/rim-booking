@@ -1,4 +1,8 @@
+import logging
+
 from flask import Blueprint, jsonify, request
+
+logger = logging.getLogger(__name__)
 
 
 def register(bp, require_auth):
@@ -9,7 +13,10 @@ def register(bp, require_auth):
     @bp.route("/api/comms/gmail", methods=["GET"])
     @require_auth
     def comms_gmail():
-        limit = int(request.args.get("limit", 20))
+        try:
+            limit = min(100, max(1, int(request.args.get("limit", 20))))
+        except (ValueError, TypeError):
+            limit = 20
         try:
             from google_auth import get_gmail_service
 
@@ -44,8 +51,9 @@ def register(bp, require_auth):
                 )
 
             return jsonify({"messages": messages, "error": None})
-        except Exception as e:
-            return jsonify({"messages": [], "error": str(e)})
+        except Exception:
+            logger.exception("comms_gmail error")
+            return jsonify({"messages": [], "error": "Failed to fetch Gmail messages"})
 
     # ------------------------------------------------------------------
     # GET /api/comms/dlq
@@ -76,8 +84,9 @@ def register(bp, require_auth):
                 for row in rows
             ]
             return jsonify({"entries": entries})
-        except Exception as e:
-            return jsonify({"entries": [], "error": str(e)})
+        except Exception:
+            logger.exception("comms_dlq error")
+            return jsonify({"entries": [], "error": "Failed to fetch DLQ entries"})
 
     # ------------------------------------------------------------------
     # POST /api/comms/dlq/<msg_id>/dismiss
@@ -94,8 +103,9 @@ def register(bp, require_auth):
                     (msg_id,),
                 )
             return jsonify({"ok": True})
-        except Exception as e:
-            return jsonify({"ok": False, "error": str(e)})
+        except Exception:
+            logger.exception("comms_dlq_dismiss error for %s", msg_id)
+            return jsonify({"ok": False, "error": "Failed to dismiss entry"})
 
     # ------------------------------------------------------------------
     # POST /api/comms/sms
@@ -115,8 +125,9 @@ def register(bp, require_auth):
 
             send_sms(to, message)
             return jsonify({"ok": True})
-        except Exception as e:
-            return jsonify({"ok": False, "error": str(e)})
+        except Exception:
+            logger.exception("comms_send_sms error")
+            return jsonify({"ok": False, "error": "Failed to send SMS"})
 
     # ------------------------------------------------------------------
     # GET /api/comms/clarifications
@@ -144,8 +155,9 @@ def register(bp, require_auth):
                 for row in rows
             ]
             return jsonify({"clarifications": clarifications})
-        except Exception as e:
-            return jsonify({"clarifications": [], "error": str(e)})
+        except Exception:
+            logger.exception("comms_clarifications error")
+            return jsonify({"clarifications": [], "error": "Failed to fetch clarifications"})
 
     # ------------------------------------------------------------------
     # GET /api/comms/waitlist
@@ -173,8 +185,9 @@ def register(bp, require_auth):
                 for row in rows
             ]
             return jsonify({"waitlist": waitlist})
-        except Exception as e:
-            return jsonify({"waitlist": [], "error": str(e)})
+        except Exception:
+            logger.exception("comms_waitlist error")
+            return jsonify({"waitlist": [], "error": "Failed to fetch waitlist"})
 
     # ------------------------------------------------------------------
     # POST /api/comms/waitlist/<waitlist_id>/notify
@@ -191,8 +204,9 @@ def register(bp, require_auth):
                     (waitlist_id,),
                 )
             return jsonify({"ok": True})
-        except Exception as e:
-            return jsonify({"ok": False, "error": str(e)})
+        except Exception:
+            logger.exception("comms_waitlist_notify error for id %s", waitlist_id)
+            return jsonify({"ok": False, "error": "Failed to update waitlist entry"})
 
     # ------------------------------------------------------------------
     # GET /api/comms/sms/log
@@ -201,7 +215,10 @@ def register(bp, require_auth):
     @require_auth
     def comms_sms_log():
         """Return recent outbound SMS from sms_log table (if it exists)."""
-        limit = int(request.args.get("limit", 20))
+        try:
+            limit = min(200, max(1, int(request.args.get("limit", 20))))
+        except (ValueError, TypeError):
+            limit = 20
         try:
             from state_manager import _get_conn
             with _get_conn() as conn:
@@ -221,7 +238,10 @@ def register(bp, require_auth):
     @bp.route("/api/comms/activity", methods=["GET"])
     @require_auth
     def comms_activity():
-        limit = int(request.args.get("limit", 50))
+        try:
+            limit = min(200, max(1, int(request.args.get("limit", 50))))
+        except (ValueError, TypeError):
+            limit = 50
         try:
             from state_manager import _get_conn
 
@@ -251,8 +271,9 @@ def register(bp, require_auth):
                 for row in rows
             ]
             return jsonify({"events": events})
-        except Exception as e:
-            return jsonify({"events": [], "error": str(e)})
+        except Exception:
+            logger.exception("comms_activity error")
+            return jsonify({"events": [], "error": "Failed to fetch activity"})
 
 
 # Self-registration when module is imported directly

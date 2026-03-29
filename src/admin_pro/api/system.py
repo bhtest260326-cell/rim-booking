@@ -88,9 +88,9 @@ def register(bp, require_auth):
         try:
             from feature_flags import get_all_flags
             return jsonify({'flags': get_all_flags()})
-        except Exception as e:
+        except Exception:
             logger.exception('get_flags error')
-            return jsonify({'ok': False, 'error': str(e)}), 500
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
     # ------------------------------------------------------------------
     # POST /api/system/flags/<key>
@@ -107,9 +107,9 @@ def register(bp, require_auth):
             enabled = bool(body.get('enabled', True))
             set_flag(key, enabled)
             return jsonify({'ok': True, 'key': key, 'enabled': enabled})
-        except Exception as e:
+        except Exception:
             logger.exception('set_flag error')
-            return jsonify({'ok': False, 'error': str(e)}), 500
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
     # ------------------------------------------------------------------
     # GET /api/system/db-stats
@@ -127,7 +127,11 @@ def register(bp, require_auth):
             total_rows = 0
             for (name,) in tables_rows:
                 try:
-                    count_row = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()
+                    # Use a parameterized-style quoting: sqlite3 double-quotes
+                    # identifiers; name comes from sqlite_master (not user input)
+                    # but we still sanitize to only allow safe identifier chars.
+                    safe_name = name.replace('"', '""')
+                    count_row = conn.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()
                     count = count_row[0] if count_row else 0
                 except Exception:
                     count = 0
@@ -135,9 +139,9 @@ def register(bp, require_auth):
                 total_rows += count
             conn.close()
             return jsonify({'tables': tables, 'total_rows': total_rows})
-        except Exception as e:
+        except Exception:
             logger.exception('db_stats error')
-            return jsonify({'ok': False, 'error': str(e)}), 500
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
     # ------------------------------------------------------------------
     # POST /api/system/cancel-day
@@ -156,9 +160,9 @@ def register(bp, require_auth):
             state = StateManager()
             cancelled = state.cancel_all_bookings_for_date(date, reason, 'owner_ui')
             return jsonify({'ok': True, 'cancelled': len(cancelled), 'booking_ids': cancelled})
-        except Exception as e:
+        except Exception:
             logger.exception('cancel_day error')
-            return jsonify({'ok': False, 'error': str(e)}), 500
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
     # ------------------------------------------------------------------
     # GET /api/system/app-state
@@ -174,9 +178,9 @@ def register(bp, require_auth):
             conn.close()
             state = {row['key']: row['value'] for row in rows}
             return jsonify({'state': state})
-        except Exception as e:
+        except Exception:
             logger.exception('get_app_state error')
-            return jsonify({'ok': False, 'error': str(e)}), 500
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
     # ------------------------------------------------------------------
     # POST /api/system/app-state/<key>
@@ -191,9 +195,9 @@ def register(bp, require_auth):
             from state_manager import StateManager
             StateManager().set_app_state(key, value)
             return jsonify({'ok': True, 'key': key, 'value': value})
-        except Exception as e:
+        except Exception:
             logger.exception('set_app_state error')
-            return jsonify({'ok': False, 'error': str(e)}), 500
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
     # ------------------------------------------------------------------
     # GET /api/system/waitlist
@@ -211,9 +215,9 @@ def register(bp, require_auth):
             conn.close()
             entries = [dict(row) for row in rows]
             return jsonify({'waitlist': entries, 'total': len(entries)})
-        except Exception as e:
+        except Exception:
             logger.exception('get_waitlist error')
-            return jsonify({'ok': False, 'error': str(e)}), 500
+            return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
 
 # ---------------------------------------------------------------------------

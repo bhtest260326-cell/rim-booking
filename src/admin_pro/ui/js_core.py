@@ -446,6 +446,9 @@ function setAutoRefresh(section, intervalMs) {
 
 // ── Global Search ────────────────────────────────────────────
 const globalSearch = debounce(function(query) {
+  const clearBtn = document.getElementById('ap-search-clear');
+  if (clearBtn) clearBtn.style.display = query ? 'inline' : 'none';
+
   if (!query || query.length < 2) return;
 
   if (APP.currentSection !== 'bookings') {
@@ -458,6 +461,16 @@ const globalSearch = debounce(function(query) {
     searchInput.dispatchEvent(new Event('input'));
   }
 }, 400);
+
+function clearSearch() {
+  const searchInput = document.getElementById('ap-global-search');
+  const clearBtn    = document.getElementById('ap-search-clear');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.dispatchEvent(new Event('input'));
+  }
+  if (clearBtn) clearBtn.style.display = 'none';
+}
 
 // ── Notifications Bell ───────────────────────────────────────
 function toggleNotifications() {
@@ -492,6 +505,84 @@ async function loadNotificationCount() {
   }
 }
 
+// ── Admin Dropdown ───────────────────────────────────────────
+function toggleAdminDropdown(e) {
+  e.stopPropagation();
+  const dropdown = document.getElementById('ap-admin-dropdown');
+  if (!dropdown) return;
+  const isOpen = dropdown.style.display !== 'none';
+  dropdown.style.display = isOpen ? 'none' : 'block';
+}
+
+function closeAdminDropdown() {
+  const dropdown = document.getElementById('ap-admin-dropdown');
+  if (dropdown) dropdown.style.display = 'none';
+}
+
+function showChangePasswordModal() {
+  closeAdminDropdown();
+  showModal(
+    'Change Password',
+    '<div class="ap-form-group">' +
+      '<label class="ap-label" for="cp-current">Current Password</label>' +
+      '<input class="ap-input" id="cp-current" type="password" placeholder="Current password" autocomplete="current-password">' +
+    '</div>' +
+    '<div class="ap-form-group ap-mt-16">' +
+      '<label class="ap-label" for="cp-new">New Password</label>' +
+      '<input class="ap-input" id="cp-new" type="password" placeholder="New password" autocomplete="new-password">' +
+    '</div>' +
+    '<div class="ap-form-group ap-mt-16">' +
+      '<label class="ap-label" for="cp-confirm">Confirm New Password</label>' +
+      '<input class="ap-input" id="cp-confirm" type="password" placeholder="Confirm new password" autocomplete="new-password">' +
+    '</div>',
+    '<button class="ap-btn ap-btn-primary" onclick="submitChangePassword()">Update Password</button>' +
+    '<button class="ap-btn ap-btn-ghost" onclick="closeModal()">Cancel</button>'
+  );
+}
+
+async function submitChangePassword() {
+  const current = (document.getElementById('cp-current') || {}).value || '';
+  const newPw   = (document.getElementById('cp-new')     || {}).value || '';
+  const confirm = (document.getElementById('cp-confirm') || {}).value || '';
+
+  if (!current || !newPw) {
+    showToast('Please fill in all fields.', 'warning');
+    return;
+  }
+  if (newPw !== confirm) {
+    showToast('New passwords do not match.', 'warning');
+    return;
+  }
+  if (newPw.length < 8) {
+    showToast('Password must be at least 8 characters.', 'warning');
+    return;
+  }
+
+  try {
+    await apiFetch('/api/admin/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: current, new_password: newPw }),
+    });
+    closeModal();
+    showToast('Password updated successfully.', 'success');
+  } catch (err) {
+    showToast('Failed to update password: ' + (err.message || 'Unknown error'), 'error');
+  }
+}
+
+function openDocumentation() {
+  closeAdminDropdown();
+  window.open('/docs', '_blank');
+}
+
+function adminLogout() {
+  closeAdminDropdown();
+  // Clear the session cookie and reload
+  document.cookie = 'ap_session=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  document.cookie = 'session=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  window.location.reload();
+}
+
 // ── Initialization ───────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
   // Boot the default section
@@ -505,6 +596,15 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       closeModal();
+      closeAdminDropdown();
+    }
+  });
+
+  // Close admin dropdown when clicking anywhere outside
+  document.addEventListener('click', function(e) {
+    const badge = document.getElementById('ap-user-badge');
+    if (badge && !badge.contains(e.target)) {
+      closeAdminDropdown();
     }
   });
 
