@@ -167,16 +167,24 @@ function renderBookingsTable(bookings) {
     return;
   }
 
+  function _sortTh(label, col) {
+    var active  = BOOKINGS_STATE.sortBy === col;
+    var dir     = active ? BOOKINGS_STATE.sortDir : \'\';
+    var arrow   = dir === \'asc\' ? \' ↑\' : dir === \'desc\' ? \' ↓\' : \' ↕\';
+    var cls     = \'ap-th ap-th--sort\' + (active ? \' ap-th--sort-active\' : \'\');
+    return \'<th class="\' + cls + \'" onclick="sortBookings(\\'\' + col + \'\\')">\' + label + \'<span class="ap-sort-icon">\' + arrow + \'</span></th>\';
+  }
+
   const headerCols = [
     \'<th class="ap-th ap-th--check"><input type="checkbox" title="Select all" onchange="toggleSelectAllBookings(this.checked)"></th>\',
-    \'<th class="ap-th">#ID</th>\',
+    \'<th class="ap-th">#</th>\',
     \'<th class="ap-th">Customer</th>\',
     \'<th class="ap-th">Contact</th>\',
     \'<th class="ap-th">Service</th>\',
-    \'<th class="ap-th">Date / Time</th>\',
+    _sortTh(\'Date / Time\', \'preferred_date\'),
     \'<th class="ap-th">Address</th>\',
-    \'<th class="ap-th">Status</th>\',
-    \'<th class="ap-th">Created</th>\',
+    _sortTh(\'Status\', \'status\'),
+    _sortTh(\'Created\', \'created_at\'),
     \'<th class="ap-th ap-th--actions">Actions</th>\',
   ].join(\'\');
 

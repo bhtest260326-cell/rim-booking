@@ -2180,19 +2180,30 @@ body.ap-body {
 }
 
 /* --- Sortable Table Headers ------------------------------- */
-.ap-th-sortable {
+.ap-th-sortable, .ap-th--sort {
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
 }
 
-.ap-th-sortable:hover {
+.ap-th-sortable:hover, .ap-th--sort:hover {
   color: var(--ap-text);
+  background: rgba(255,255,255,0.04);
 }
 
-.ap-sort-arrow {
-  opacity: 0.4;
+.ap-th--sort-active {
+  color: var(--ap-primary);
+}
+
+.ap-sort-arrow, .ap-sort-icon {
+  opacity: 0.45;
   font-size: 10px;
+  margin-left: 2px;
+}
+
+.ap-th--sort-active .ap-sort-icon {
+  opacity: 1;
+  color: var(--ap-primary);
 }
 
 .ap-th-check {

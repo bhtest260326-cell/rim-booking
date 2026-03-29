@@ -170,10 +170,20 @@ def register(bp, require_auth):
 
             where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
+            # Sort
+            _SORT_COLS = {
+                'created_at':     'created_at',
+                'preferred_date': 'preferred_date',
+                'status':         'status',
+                'customer_email': 'customer_email',
+            }
+            sort_by  = _SORT_COLS.get(request.args.get('sort_by', ''), 'created_at')
+            sort_dir = 'ASC' if request.args.get('sort_dir', 'desc').lower() == 'asc' else 'DESC'
+
             count_sql = f"SELECT COUNT(*) AS cnt FROM bookings {where_clause}"
             list_sql = (
                 f"SELECT * FROM bookings {where_clause} "
-                f"ORDER BY created_at DESC "
+                f"ORDER BY {sort_by} {sort_dir} "
                 f"LIMIT ? OFFSET ?"
             )
 
