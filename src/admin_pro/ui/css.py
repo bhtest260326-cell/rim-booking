@@ -44,6 +44,114 @@ CSS = """
   --ap-sidebar-border: #2a2a2a;
 }
 
+/* --- Light Theme ------------------------------------------- */
+[data-theme="light"] {
+  --ap-bg: #f0f2f5;
+  --ap-surface: #ffffff;
+  --ap-card: #ffffff;
+  --ap-card-hover: #f8f9fa;
+  --ap-border: #dee2e6;
+  --ap-border-light: #ced4da;
+  --ap-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  --ap-text: #1e293b;
+  --ap-text-muted: #64748b;
+  --ap-text-dim: #475569;
+  --ap-sidebar-bg: #ffffff;
+  --ap-sidebar-border: #e2e8f0;
+}
+
+/* Light theme — element-level overrides for hardcoded colors */
+[data-theme="light"] .ap-sidebar-overlay.active {
+  background: rgba(0,0,0,0.25);
+}
+[data-theme="light"] .ap-brand-name {
+  color: #1e293b;
+}
+[data-theme="light"] .ap-sidebar-logo-icon {
+  color: #fff;
+}
+[data-theme="light"] .ap-nav-item.active {
+  color: var(--ap-primary);
+}
+[data-theme="light"] .ap-table td {
+  border-bottom: 1px solid var(--ap-border);
+}
+[data-theme="light"] .ap-table tbody tr:hover {
+  background: rgba(200, 16, 46, 0.04);
+}
+[data-theme="light"] .ap-notification-bell:hover,
+[data-theme="light"] .ap-sidebar-toggle:hover {
+  background: rgba(0,0,0,0.05);
+}
+[data-theme="light"] .ap-card:hover {
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+}
+[data-theme="light"] .ap-kpi-card:hover {
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1), 0 4px 12px rgba(200,16,46,0.08);
+}
+[data-theme="light"] .ap-modal-dialog {
+  box-shadow: 0 24px 64px rgba(0,0,0,0.15);
+}
+[data-theme="light"] .ap-user-dropdown {
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+}
+[data-theme="light"] .ap-user-dropdown-item:hover {
+  background: rgba(200, 16, 46, 0.06);
+}
+
+/* Theme toggle button in topbar */
+.ap-theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--ap-radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  color: rgba(255,255,255,0.85);
+  transition: background var(--ap-transition), color var(--ap-transition);
+}
+.ap-theme-toggle:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+[data-theme="light"] .ap-theme-toggle {
+  color: rgba(255,255,255,0.9);
+}
+[data-theme="light"] .ap-theme-toggle:hover {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+}
+
+/* Undo toast snackbar */
+.ap-toast--undo {
+  background: #323232 !important;
+  color: #fff !important;
+}
+.ap-toast--undo .ap-toast__message {
+  color: #fff !important;
+}
+.ap-undo-btn {
+  background: none;
+  border: none;
+  color: #4fc3f7;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.ap-undo-btn:hover {
+  background: rgba(79, 195, 247, 0.15);
+}
+
 /* --- Keyframes --------------------------------------------- */
 @keyframes ap-shimmer {
   0%   { background-position: -400px 0; }

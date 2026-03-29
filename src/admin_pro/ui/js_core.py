@@ -3,6 +3,14 @@ JS_CORE = """
 // Admin Pro — Core JavaScript Framework
 // ============================================================
 
+// ── Theme (apply before render to avoid flash) ──────────────
+(function() {
+  var saved = localStorage.getItem('ap-theme');
+  if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+})();
+
 // ── Global State ─────────────────────────────────────────────
 const APP = {
   currentSection: 'dashboard',
@@ -633,8 +641,111 @@ function adminLogout() {
   window.location.reload();
 }
 
+// ── Theme Toggle ─────────────────────────────────────────────
+function toggleTheme() {
+  var current = document.documentElement.getAttribute('data-theme');
+  var next = (current === 'light') ? 'dark' : 'light';
+  if (next === 'dark') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+  localStorage.setItem('ap-theme', next);
+  _updateThemeIcon(next);
+}
+
+function _updateThemeIcon(theme) {
+  var icon = document.getElementById('ap-theme-icon');
+  if (!icon) return;
+  // Sun for dark mode (click to go light), Moon for light mode (click to go dark)
+  icon.innerHTML = (theme === 'light') ? '\\u263C' : '\\u263E';
+}
+
+// ── Undo Toast (for drag-and-drop undo) ─────────────────────
+function showUndoToast(message, onUndo, duration) {
+  duration = duration || 10000;
+  var container = document.getElementById('ap-toast-container');
+  if (!container) return null;
+
+  var toast = document.createElement('div');
+  toast.className = 'ap-toast ap-toast--undo';
+  toast.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'gap:10px',
+    'padding:12px 16px',
+    'border-radius:6px',
+    'margin-bottom:8px',
+    'box-shadow:0 4px 12px rgba(0,0,0,0.25)',
+    'opacity:0',
+    'transform:translateX(40px)',
+    'transition:opacity 0.25s ease, transform 0.25s ease',
+    'max-width:420px',
+    'word-break:break-word',
+  ].join(';');
+
+  var text = document.createElement('span');
+  text.className = 'ap-toast__message';
+  text.textContent = message;
+  text.style.cssText = 'flex:1;font-size:14px;';
+
+  var undoBtn = document.createElement('button');
+  undoBtn.className = 'ap-undo-btn';
+  undoBtn.textContent = 'Undo';
+
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'ap-toast__close';
+  closeBtn.textContent = '\\u00d7';
+  closeBtn.style.cssText = [
+    'background:none',
+    'border:none',
+    'cursor:pointer',
+    'font-size:18px',
+    'line-height:1',
+    'padding:0',
+    'opacity:0.7',
+    'flex-shrink:0',
+    'color:#fff',
+  ].join(';');
+
+  toast.appendChild(text);
+  toast.appendChild(undoBtn);
+  toast.appendChild(closeBtn);
+  container.appendChild(toast);
+
+  requestAnimationFrame(function() {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(0)';
+  });
+
+  var dismissed = false;
+  function removeToast() {
+    if (dismissed) return;
+    dismissed = true;
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(40px)';
+    setTimeout(function() {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 280);
+  }
+
+  undoBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (!dismissed && onUndo) onUndo();
+    removeToast();
+  });
+  closeBtn.addEventListener('click', removeToast);
+
+  var timer = setTimeout(removeToast, duration);
+
+  return { dismiss: removeToast };
+}
+
 // ── Initialization ───────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
+  // Apply saved theme icon
+  _updateThemeIcon(localStorage.getItem('ap-theme') || 'dark');
+
   // Boot the default section
   showSection('dashboard');
 

@@ -748,6 +748,9 @@ async function calDrop(event, targetDate) {
   await calMoveBooking(bookingId, targetDate, newTime, origDate, origTime);
 }
 
+// Track last undo toast so we can dismiss it if a new move happens
+var _calLastUndoToast = null;
+
 async function calMoveBooking(bookingId, newDate, newTime, oldDate, oldTime) {
   var payload = { preferred_date: newDate, preferred_time: newTime };
 
@@ -756,8 +759,6 @@ async function calMoveBooking(bookingId, newDate, newTime, oldDate, oldTime) {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-
-    showToast('Booking moved to ' + newDate + ' at ' + newTime, 'success');
 
     // Mark moved server-side with original date/time for notification
     try {
@@ -773,8 +774,47 @@ async function calMoveBooking(bookingId, newDate, newTime, oldDate, oldTime) {
 
     await loadCalendarData();
     renderCalendar();
+
+    // Dismiss any previous undo toast (only keep last action)
+    if (_calLastUndoToast) {
+      _calLastUndoToast.dismiss();
+      _calLastUndoToast = null;
+    }
+
+    // Show undo snackbar
+    var displayTime12 = '';
+    var parsed = _calParseTime(newTime);
+    if (parsed) {
+      displayTime12 = _calFormatTime12(parsed.hour, parsed.minute);
+    } else {
+      displayTime12 = newTime;
+    }
+    var msg = 'Booking moved to ' + newDate + ' at ' + displayTime12 + '.';
+
+    _calLastUndoToast = showUndoToast(msg + ' Undo?', function() {
+      _calUndoMove(bookingId, oldDate, oldTime);
+    }, 10000);
+
   } catch (err) {
     showToast('Failed to move booking: ' + (err.message || 'Unknown error'), 'error');
+  }
+}
+
+async function _calUndoMove(bookingId, oldDate, oldTime) {
+  try {
+    await apiFetch('/v2/api/bookings/' + bookingId + '/edit', {
+      method: 'POST',
+      body: JSON.stringify({ preferred_date: oldDate, preferred_time: oldTime }),
+    });
+
+    // Remove the changed marker since we reverted
+    CAL_STATE.changedBookings.delete(bookingId);
+
+    await loadCalendarData();
+    renderCalendar();
+    showToast('Move undone.', 'info', 3000);
+  } catch (err) {
+    showToast('Undo failed: ' + (err.message || 'Unknown error'), 'error');
   }
 }
 

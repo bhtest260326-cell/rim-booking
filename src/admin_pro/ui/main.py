@@ -32,6 +32,10 @@ if ('serviceWorker' in navigator) {{
 }}
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// Apply theme before first paint to avoid flash
+(function(){{ var t = localStorage.getItem('ap-theme'); if (t === 'light') document.documentElement.setAttribute('data-theme', 'light'); }})();
+</script>
 <style>
 {CSS}
 </style>

@@ -135,6 +135,9 @@ HTML_TOPBAR = """
     </div>
   </div>
   <div class="ap-topbar-right">
+    <button class="ap-theme-toggle" id="ap-theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" aria-label="Toggle theme">
+      <span id="ap-theme-icon">&#9790;</span>
+    </button>
     <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="refreshCurrentSection()" id="ap-refresh-btn" title="Refresh">
       <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="15" height="15" style="margin-right:4px">
         <polyline points="23,4 23,10 17,10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
