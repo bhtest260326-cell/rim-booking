@@ -646,6 +646,52 @@ HTML_SECTIONS = """
     </div>
   </div>
 
+  <!-- ── Performance Metrics ── -->
+  <div class="ap-card" id="metrics-card">
+    <div class="ap-card-header">
+      <span class="ap-card-title">Performance Metrics</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label class="ap-toggle-label" style="font-size:12px;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="metrics-autorefresh" checked onchange="toggleMetricsAutoRefresh(this.checked)">
+          <span>Auto-refresh</span>
+        </label>
+        <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="loadPerformanceMetrics()">↻ Refresh</button>
+      </div>
+    </div>
+    <div class="ap-grid-4" id="metrics-widgets">
+      <div class="ap-card ap-health-card" id="metric-uptime">
+        <div class="ap-health-label">Uptime</div>
+        <div class="ap-health-status" id="metric-uptime-val">--</div>
+      </div>
+      <div class="ap-card ap-health-card" id="metric-memory">
+        <div class="ap-health-label">Memory Usage</div>
+        <div class="ap-health-status" id="metric-memory-val">--</div>
+      </div>
+      <div class="ap-card ap-health-card" id="metric-conversion-7d">
+        <div class="ap-health-label">Conversion (7d)</div>
+        <div class="ap-health-status" id="metric-conversion-7d-val">--</div>
+      </div>
+      <div class="ap-card ap-health-card" id="metric-conversion-30d">
+        <div class="ap-health-label">Conversion (30d)</div>
+        <div class="ap-health-status" id="metric-conversion-30d-val">--</div>
+      </div>
+    </div>
+    <div class="ap-grid-2" style="margin-top:12px">
+      <div>
+        <div class="ap-text-muted" style="font-size:12px;margin-bottom:8px">Queue Depth</div>
+        <div id="metrics-queues"><span class="ap-text-muted">Loading...</span></div>
+      </div>
+      <div>
+        <div class="ap-text-muted" style="font-size:12px;margin-bottom:8px">System Info</div>
+        <div id="metrics-sysinfo"><span class="ap-text-muted">Loading...</span></div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <div class="ap-text-muted" style="font-size:12px;margin-bottom:8px">API Response Times (top endpoints)</div>
+      <div id="metrics-response-times"><span class="ap-text-muted">Loading...</span></div>
+    </div>
+  </div>
+
   <div class="ap-grid-2">
     <div class="ap-card">
       <div class="ap-card-header">

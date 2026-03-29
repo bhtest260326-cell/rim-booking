@@ -89,6 +89,25 @@ def create_app():
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max request size
 
+    # ── Request timing middleware ─────────────────────────────────────────────
+    # Lightweight: stores timing in an in-memory ring buffer (no I/O on hot path)
+    @app.before_request
+    def _start_timer():
+        request._metrics_start = time.monotonic()
+
+    @app.after_request
+    def _record_timing(response):
+        start = getattr(request, '_metrics_start', None)
+        if start is not None:
+            duration_ms = (time.monotonic() - start) * 1000
+            endpoint = request.endpoint or request.path
+            try:
+                from request_metrics import record_timing
+                record_timing(endpoint, duration_ms)
+            except Exception:
+                pass  # Never let metrics collection break a request
+        return response
+
     # Fix 1 — Log Pub/Sub verification mode at startup
     _pubsub_audience = os.environ.get('PUBSUB_AUDIENCE', '')
     if _pubsub_audience:

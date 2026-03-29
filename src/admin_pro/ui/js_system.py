@@ -1,6 +1,8 @@
 JS_SYSTEM = """
 // ── System Section ────────────────────────────────────────────────────────────
 
+let _metricsRefreshTimer = null;
+
 async function initSystem() {
   injectFlagStyles();
   await Promise.all([
@@ -8,7 +10,11 @@ async function initSystem() {
     loadFeatureFlags(),
     loadDbStats(),
     loadBackupStatus(),
+    loadPerformanceMetrics(),
   ]);
+  // Start auto-refresh if checkbox is checked
+  const cb = document.getElementById('metrics-autorefresh');
+  if (cb && cb.checked) startMetricsAutoRefresh();
 }
 
 // ── System Health ─────────────────────────────────────────────────────────────
@@ -221,6 +227,123 @@ function toggleAppStateRaw() {
     raw.style.display = 'none';
     formatted.style.display = 'block';
   }
+}
+
+// ── Performance Metrics ──────────────────────────────────────────────────────
+
+function formatUptime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+
+async function loadPerformanceMetrics() {
+  try {
+    const data = await apiFetch('/v2/api/system/metrics');
+
+    // Uptime
+    const uptimeEl = document.getElementById('metric-uptime-val');
+    if (uptimeEl) uptimeEl.innerHTML = '<span style="color:var(--ap-green);font-weight:600">' + formatUptime(data.uptime_seconds || 0) + '</span>';
+
+    // Memory
+    const memEl = document.getElementById('metric-memory-val');
+    if (memEl) {
+      const mem = data.system_info?.memory_mb;
+      const color = mem && mem > 512 ? 'var(--ap-amber)' : 'var(--ap-green)';
+      memEl.innerHTML = mem != null ? '<span style="color:' + color + ';font-weight:600">' + mem + ' MB</span>' : '<span class="ap-text-muted">N/A</span>';
+    }
+
+    // Conversion rates
+    const c7d = data.conversion?.['7d'];
+    const c30d = data.conversion?.['30d'];
+    const c7El = document.getElementById('metric-conversion-7d-val');
+    const c30El = document.getElementById('metric-conversion-30d-val');
+    if (c7El && c7d) {
+      c7El.innerHTML = '<span style="font-weight:600;color:var(--ap-primary)">' + c7d.rate + '%</span>' +
+        '<br><small class="ap-text-muted">' + c7d.confirmed + '/' + c7d.total + ' bookings</small>';
+    }
+    if (c30El && c30d) {
+      c30El.innerHTML = '<span style="font-weight:600;color:var(--ap-primary)">' + c30d.rate + '%</span>' +
+        '<br><small class="ap-text-muted">' + c30d.confirmed + '/' + c30d.total + ' bookings</small>';
+    }
+
+    // Queue depth
+    const queuesEl = document.getElementById('metrics-queues');
+    if (queuesEl && data.queues) {
+      const dlq = data.queues.dlq || 0;
+      const retry = data.queues.retry_pending || 0;
+      const dlqColor = dlq > 0 ? 'var(--ap-red)' : 'var(--ap-green)';
+      const retryColor = retry > 0 ? 'var(--ap-amber)' : 'var(--ap-green)';
+      queuesEl.innerHTML =
+        '<div class="ap-stat-row"><span class="ap-stat-label">Dead Letter Queue</span><span class="ap-stat-val" style="color:' + dlqColor + '">' + dlq + '</span></div>' +
+        '<div class="ap-stat-row"><span class="ap-stat-label">Retry Pending</span><span class="ap-stat-val" style="color:' + retryColor + '">' + retry + '</span></div>';
+    }
+
+    // System info
+    const sysEl = document.getElementById('metrics-sysinfo');
+    if (sysEl && data.system_info) {
+      const si = data.system_info;
+      sysEl.innerHTML =
+        '<div class="ap-stat-row"><span class="ap-stat-label">Python</span><span class="ap-stat-val">' + escapeHtml(si.python_version || '--') + '</span></div>' +
+        '<div class="ap-stat-row"><span class="ap-stat-label">DB Size</span><span class="ap-stat-val">' + (si.db_size_mb || 0) + ' MB</span></div>';
+    }
+
+    // Response times table
+    const rtEl = document.getElementById('metrics-response-times');
+    if (rtEl && data.response_times) {
+      const entries = Object.entries(data.response_times)
+        .filter(([,v]) => v.count_1h > 0 || v.count_24h > 0)
+        .sort((a, b) => (b[1].count_24h || 0) - (a[1].count_24h || 0))
+        .slice(0, 15);
+
+      if (entries.length === 0) {
+        rtEl.innerHTML = '<span class="ap-text-muted">No request data yet</span>';
+      } else {
+        let html = '<table style="width:100%;font-size:13px;border-collapse:collapse">' +
+          '<thead><tr style="border-bottom:1px solid var(--ap-border);text-align:left">' +
+          '<th style="padding:6px 8px">Endpoint</th>' +
+          '<th style="padding:6px 8px;text-align:right">Avg 1h</th>' +
+          '<th style="padding:6px 8px;text-align:right">P95 1h</th>' +
+          '<th style="padding:6px 8px;text-align:right">Avg 24h</th>' +
+          '<th style="padding:6px 8px;text-align:right">Reqs 24h</th>' +
+          '</tr></thead><tbody>';
+        for (const [ep, v] of entries) {
+          const avg1h = v.avg_1h != null ? v.avg_1h + 'ms' : '--';
+          const p95 = v.p95_1h != null ? v.p95_1h + 'ms' : '--';
+          const avg24h = v.avg_24h != null ? v.avg_24h + 'ms' : '--';
+          const avgColor = v.avg_1h && v.avg_1h > 1000 ? 'color:var(--ap-red)' : v.avg_1h && v.avg_1h > 500 ? 'color:var(--ap-amber)' : '';
+          html += '<tr style="border-bottom:1px solid var(--ap-border)">' +
+            '<td style="padding:6px 8px;font-family:monospace;font-size:12px">' + escapeHtml(ep) + '</td>' +
+            '<td style="padding:6px 8px;text-align:right;' + avgColor + '">' + avg1h + '</td>' +
+            '<td style="padding:6px 8px;text-align:right">' + p95 + '</td>' +
+            '<td style="padding:6px 8px;text-align:right">' + avg24h + '</td>' +
+            '<td style="padding:6px 8px;text-align:right">' + v.count_24h + '</td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+        rtEl.innerHTML = html;
+      }
+    }
+  } catch (err) {
+    console.error('loadPerformanceMetrics error:', err);
+  }
+}
+
+function startMetricsAutoRefresh() {
+  stopMetricsAutoRefresh();
+  _metricsRefreshTimer = setInterval(() => loadPerformanceMetrics(), 30000);
+}
+
+function stopMetricsAutoRefresh() {
+  if (_metricsRefreshTimer) { clearInterval(_metricsRefreshTimer); _metricsRefreshTimer = null; }
+}
+
+function toggleMetricsAutoRefresh(enabled) {
+  if (enabled) startMetricsAutoRefresh();
+  else stopMetricsAutoRefresh();
 }
 
 // ── Flag & Toggle Styles ──────────────────────────────────────────────────────

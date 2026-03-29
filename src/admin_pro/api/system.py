@@ -1,8 +1,9 @@
 """
-admin_pro/api/system.py — System health, flags, DB stats, app state, and day cancellation.
+admin_pro/api/system.py — System health, flags, DB stats, app state, day cancellation, and performance metrics.
 """
 
 import os
+import sys
 import sqlite3
 import logging
 
@@ -264,6 +265,118 @@ def register(bp, require_auth):
         except Exception:
             logger.exception('get_waitlist error')
             return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
+    # ------------------------------------------------------------------
+    # GET /api/system/metrics  — Performance metrics dashboard
+    # ------------------------------------------------------------------
+
+    @bp.route('/api/system/metrics', methods=['GET'])
+    @require_auth
+    def system_metrics():
+        from datetime import datetime, timedelta, timezone
+
+        result = {}
+
+        # ── API Response Times (from in-memory ring buffer) ──
+        try:
+            from request_metrics import get_endpoint_stats, get_uptime_seconds
+            result['response_times'] = get_endpoint_stats()
+            result['uptime_seconds'] = get_uptime_seconds()
+        except Exception as e:
+            logger.warning('metrics: response_times error: %s', e)
+            result['response_times'] = {}
+            result['uptime_seconds'] = 0
+
+        # ── Queue Depth (DLQ + message_queue) ──
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=5)
+            conn.row_factory = sqlite3.Row
+
+            dlq_count = 0
+            try:
+                row = conn.execute("SELECT COUNT(*) as cnt FROM dlq").fetchone()
+                dlq_count = row['cnt'] if row else 0
+            except Exception:
+                pass  # table may not exist
+
+            retry_count = 0
+            try:
+                row = conn.execute("SELECT COUNT(*) as cnt FROM message_queue WHERE status='pending'").fetchone()
+                retry_count = row['cnt'] if row else 0
+            except Exception:
+                pass
+
+            conn.close()
+            result['queues'] = {
+                'dlq': dlq_count,
+                'retry_pending': retry_count,
+            }
+        except Exception as e:
+            logger.warning('metrics: queue depth error: %s', e)
+            result['queues'] = {'dlq': 0, 'retry_pending': 0}
+
+        # ── Booking Conversion Rate ──
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=5)
+            conn.row_factory = sqlite3.Row
+            now_utc = datetime.now(timezone.utc)
+
+            def _conversion(days):
+                cutoff = (now_utc - timedelta(days=days)).isoformat()
+                total_row = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM bookings WHERE created_at >= ?", (cutoff,)
+                ).fetchone()
+                confirmed_row = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM bookings WHERE created_at >= ? AND status='confirmed'", (cutoff,)
+                ).fetchone()
+                total = total_row['cnt'] if total_row else 0
+                confirmed = confirmed_row['cnt'] if confirmed_row else 0
+                return {'total': total, 'confirmed': confirmed,
+                        'rate': round(confirmed / total * 100, 1) if total > 0 else 0}
+
+            result['conversion'] = {
+                '7d': _conversion(7),
+                '30d': _conversion(30),
+            }
+            conn.close()
+        except Exception as e:
+            logger.warning('metrics: conversion rate error: %s', e)
+            result['conversion'] = {
+                '7d': {'total': 0, 'confirmed': 0, 'rate': 0},
+                '30d': {'total': 0, 'confirmed': 0, 'rate': 0},
+            }
+
+        # ── System Info ──
+        memory_mb = None
+        try:
+            # Try /proc/self/status on Linux (Railway runs Linux containers)
+            with open('/proc/self/status', 'r') as f:
+                for line in f:
+                    if line.startswith('VmRSS:'):
+                        # VmRSS is in kB
+                        memory_mb = round(int(line.split()[1]) / 1024, 1)
+                        break
+        except Exception:
+            try:
+                import resource
+                # resource.getrusage gives maxrss in KB on Linux
+                usage = resource.getrusage(resource.RUSAGE_SELF)
+                memory_mb = round(usage.ru_maxrss / 1024, 1)
+            except Exception:
+                pass
+
+        try:
+            db_size_mb = round(os.path.getsize(DB_PATH) / (1024 * 1024), 2) if os.path.exists(DB_PATH) else 0
+        except Exception:
+            db_size_mb = 0
+
+        result['system_info'] = {
+            'python_version': sys.version.split()[0],
+            'db_size_mb': db_size_mb,
+            'memory_mb': memory_mb,
+        }
+
+        return jsonify(result)
 
 
 # ---------------------------------------------------------------------------
