@@ -3,7 +3,6 @@ JS_SYSTEM = """
 
 async function initSystem() {
   injectFlagStyles();
-  renderCancelDayForm();
   await Promise.all([
     loadSystemHealth(),
     loadFeatureFlags(),
@@ -14,47 +13,23 @@ async function initSystem() {
 // ── System Health ─────────────────────────────────────────────────────────────
 
 async function loadSystemHealth() {
-  const container = document.getElementById('system-health');
-  if (!container) return;
   try {
     const h = await apiFetch('/v2/api/system/health');
 
-    function healthDot(status) {
-      const color = status === 'ok' || status === 'configured' ? 'var(--ap-green)' :
-                    status === 'unconfigured' ? 'var(--ap-amber)' : 'var(--ap-red)';
-      return `<span class="ap-status-dot" style="background:${color}"></span>`;
+    function setStatus(id, status, detail) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const color = (status === 'ok' || status === 'configured') ? 'var(--ap-green)'
+                  : (status === 'unconfigured') ? 'var(--ap-amber)' : 'var(--ap-red)';
+      el.innerHTML = `<span style="color:${color};font-weight:600">${status || '—'}</span>${detail ? '<br><small style="color:var(--ap-text-muted)">' + detail + '</small>' : ''}`;
     }
 
-    container.innerHTML = `
-      <div class="ap-grid-4">
-        <div class="ap-card">
-          ${healthDot(h.db?.status)}
-          <div class="ap-kpi-value" style="font-size:1.4rem">${h.db?.size_mb?.toFixed(2) || '?'} MB</div>
-          <div class="ap-text-muted">Database</div>
-          <div style="font-size:12px;margin-top:4px">${h.db?.bookings_count || 0} bookings</div>
-        </div>
-        <div class="ap-card">
-          ${healthDot(h.gmail?.status)}
-          <div class="ap-kpi-value" style="font-size:1.2rem">${h.gmail?.status || 'unknown'}</div>
-          <div class="ap-text-muted">Gmail API</div>
-          ${h.gmail?.last_poll ? `<div style="font-size:12px;margin-top:4px">Last poll: ${relativeTime(h.gmail.last_poll)}</div>` : ''}
-        </div>
-        <div class="ap-card">
-          ${healthDot(h.anthropic?.status)}
-          <div class="ap-kpi-value" style="font-size:1.2rem">${h.anthropic?.status || 'unknown'}</div>
-          <div class="ap-text-muted">Anthropic AI</div>
-        </div>
-        <div class="ap-card">
-          ${healthDot(h.twilio?.status)}
-          <div class="ap-kpi-value" style="font-size:1.2rem">${h.twilio?.status || 'unknown'}</div>
-          <div class="ap-text-muted">Twilio SMS</div>
-          <div style="font-size:12px;margin-top:4px">${h.uptime_info?.pubsub_mode ? 'Pub/Sub mode' : 'Polling mode'}</div>
-        </div>
-      </div>
-    `;
+    setStatus('health-gmail-status',    h.gmail?.status,     h.gmail?.last_poll ? 'Last poll: ' + relativeTime(h.gmail.last_poll) : null);
+    setStatus('health-calendar-status', h.anthropic?.status, null);
+    setStatus('health-twilio-status',   h.twilio?.status,    h.uptime_info?.pubsub_mode ? 'Pub/Sub mode' : 'Polling mode');
+    setStatus('health-db-status',       h.db?.status,        h.db ? (h.db.size_mb?.toFixed(2) + ' MB · ' + (h.db.bookings_count || 0) + ' bookings') : null);
   } catch (err) {
     console.error('loadSystemHealth error:', err);
-    container.innerHTML = '<div class="ap-text-muted">Failed to load system health.</div>';
   }
 }
 
@@ -116,66 +91,61 @@ async function toggleFlag(key, enabled) {
 // ── Database Stats ────────────────────────────────────────────────────────────
 
 async function loadDbStats() {
-  const container = document.getElementById('system-db-stats');
-  if (!container) return;
   try {
     const stats = await apiFetch('/v2/api/system/db-stats');
+    const tables = stats?.tables || [];
 
-    container.innerHTML = `
-      <h3 class="ap-card-title ap-mb-16">Database Tables</h3>
-      <div class="ap-table-wrap">
-        <table class="ap-table">
-          <thead><tr><th>Table</th><th>Rows</th></tr></thead>
-          <tbody>
-            ${(stats?.tables || []).map(t => `
-              <tr>
-                <td>${escapeHtml(t.name)}</td>
-                <td>${t.count.toLocaleString()}</td>
-              </tr>
-            `).join('')}
-            <tr style="font-weight:600;border-top:2px solid var(--ap-border)">
-              <td>Total</td><td>${(stats?.total_rows || 0).toLocaleString()}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    `;
+    // Update individual stat spans in the existing HTML
+    const bookings = tables.find(t => t.name === 'bookings');
+    const customers = tables.find(t => t.name === 'customers');
+    const dlq       = tables.find(t => t.name === 'dlq' || t.name === 'dead_letter_queue');
+    const waitlist  = tables.find(t => t.name === 'waitlist');
+
+    function setVal(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+    setVal('dbstat-bookings', bookings ? bookings.count.toLocaleString() : '—');
+    setVal('dbstat-customers', customers ? customers.count.toLocaleString() : '—');
+    setVal('dbstat-dlq',      dlq       ? dlq.count.toLocaleString()      : '—');
+    setVal('dbstat-waitlist', waitlist   ? waitlist.count.toLocaleString() : '—');
+    setVal('dbstat-size',     '—');   // not returned separately
+    setVal('dbstat-vacuum',   '—');
+
+    // Also inject a compact table below for all tables
+    const grid = document.getElementById('db-stats-grid');
+    if (grid && tables.length > 0) {
+      const extra = document.getElementById('db-stats-table');
+      if (!extra) {
+        const div = document.createElement('div');
+        div.id = 'db-stats-table';
+        div.style.cssText = 'margin-top:12px;border-top:1px solid var(--ap-border);padding-top:12px';
+        div.innerHTML = '<div class="ap-text-muted" style="font-size:12px;margin-bottom:6px">All tables</div>' +
+          tables.map(t => `<div class="ap-stat-row"><span class="ap-stat-label">${escapeHtml(t.name)}</span><span class="ap-stat-val">${t.count.toLocaleString()}</span></div>`).join('') +
+          `<div class="ap-stat-row" style="font-weight:600;border-top:1px solid var(--ap-border);margin-top:4px;padding-top:4px"><span class="ap-stat-label">Total rows</span><span class="ap-stat-val">${(stats.total_rows||0).toLocaleString()}</span></div>`;
+        grid.parentElement.appendChild(div);
+      }
+    }
   } catch (err) {
     console.error('loadDbStats error:', err);
-    container.innerHTML = '<div class="ap-text-muted">Failed to load database stats.</div>';
   }
 }
 
-// ── Cancel Day Form ───────────────────────────────────────────────────────────
+// ── Cancel Day (uses IDs from static HTML: cancel-day-date, cancel-day-reason) ──
 
-function renderCancelDayForm() {
-  const container = document.getElementById('system-cancel-day');
-  if (!container) return;
-  container.innerHTML = `
-    <h3 class="ap-card-title ap-mb-16">Cancel Day of Bookings</h3>
-    <div class="ap-form-group">
-      <label>Date to Cancel</label>
-      <input type="date" class="ap-input" id="system-cancel-date" style="max-width:200px">
-    </div>
-    <div class="ap-form-group">
-      <label>Reason (sent to customers)</label>
-      <textarea class="ap-textarea" id="system-cancel-reason" rows="3" placeholder="e.g. Equipment maintenance, public holiday..."></textarea>
-    </div>
-    <button class="ap-btn ap-btn-danger" onclick="submitSystemCancelDay()">&#9888; Cancel All Jobs on This Day</button>
-  `;
-}
+function cancelDayPrompt() { submitSystemCancelDay(); }
 
 async function submitSystemCancelDay() {
-  const date = document.getElementById('system-cancel-date').value;
-  const reason = document.getElementById('system-cancel-reason').value.trim();
-  if (!date) { showToast('Please select a date', 'warning'); return; }
+  // Support both the static HTML IDs and the dynamically-injected IDs
+  const dateEl   = document.getElementById('cancel-day-date')   || document.getElementById('system-cancel-date');
+  const reasonEl = document.getElementById('cancel-day-reason') || document.getElementById('system-cancel-reason');
+  const date   = dateEl   ? dateEl.value.trim()   : '';
+  const reason = reasonEl ? reasonEl.value.trim() : '';
+  if (!date)   { showToast('Please select a date', 'warning');    return; }
   if (!reason) { showToast('Please provide a reason', 'warning'); return; }
   if (!confirm(`Cancel ALL bookings on ${formatDate(date)}? This will notify all customers.`)) return;
   try {
-    const data = await apiFetch('/v2/api/system/cancel-day', {method:'POST', body: JSON.stringify({date, reason})});
-    showToast(`${data.cancelled} booking(s) cancelled and customers notified`, 'success');
-    document.getElementById('system-cancel-date').value = '';
-    document.getElementById('system-cancel-reason').value = '';
+    const data = await apiFetch('/v2/api/system/cancel-day', {method: 'POST', body: JSON.stringify({date, reason})});
+    showToast(`${data.cancelled || 0} booking(s) cancelled and customers notified`, 'success');
+    if (dateEl)   dateEl.value   = '';
+    if (reasonEl) reasonEl.value = '';
   } catch (err) {
     showToast('Failed to cancel day: ' + err.message, 'error');
   }

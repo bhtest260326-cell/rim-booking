@@ -678,32 +678,7 @@ HTML_SECTIONS = """
         <span class="ap-card-title">Feature Flags</span>
         <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="loadFeatureFlags()">↻ Refresh</button>
       </div>
-      <div class="ap-feature-flags" id="feature-flags-grid">
-        <div class="ap-flag-row">
-          <span class="ap-flag-label">Email Processing</span>
-          <label class="ap-toggle"><input type="checkbox" id="flag-email" onchange="toggleFlag('email_processing', this.checked)"><span class="ap-toggle-slider"></span></label>
-        </div>
-        <div class="ap-flag-row">
-          <span class="ap-flag-label">SMS Sending</span>
-          <label class="ap-toggle"><input type="checkbox" id="flag-sms" onchange="toggleFlag('sms_sending', this.checked)"><span class="ap-toggle-slider"></span></label>
-        </div>
-        <div class="ap-flag-row">
-          <span class="ap-flag-label">Auto-Confirm</span>
-          <label class="ap-toggle"><input type="checkbox" id="flag-autoconfirm" onchange="toggleFlag('auto_confirm', this.checked)"><span class="ap-toggle-slider"></span></label>
-        </div>
-        <div class="ap-flag-row">
-          <span class="ap-flag-label">Waitlist Notifications</span>
-          <label class="ap-toggle"><input type="checkbox" id="flag-waitlist" onchange="toggleFlag('waitlist_notifications', this.checked)"><span class="ap-toggle-slider"></span></label>
-        </div>
-        <div class="ap-flag-row">
-          <span class="ap-flag-label">Maps Distance Check</span>
-          <label class="ap-toggle"><input type="checkbox" id="flag-maps" onchange="toggleFlag('maps_distance_check', this.checked)"><span class="ap-toggle-slider"></span></label>
-        </div>
-        <div class="ap-flag-row">
-          <span class="ap-flag-label">Maintenance Mode</span>
-          <label class="ap-toggle"><input type="checkbox" id="flag-maintenance" onchange="toggleFlag('maintenance_mode', this.checked)"><span class="ap-toggle-slider"></span></label>
-        </div>
-      </div>
+      <div id="system-flags"><div class="ap-text-muted">Loading flags…</div></div>
     </div>
 
     <div class="ap-card">
