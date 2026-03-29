@@ -2222,10 +2222,11 @@ body.ap-body {
 .ap-calendar-layout {
   display: grid;
   grid-template-columns: 1fr 280px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
-  align-items: stretch;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .ap-calendar-main {
