@@ -491,10 +491,14 @@ function _calRenderBookingCard(b, dateStr) {
 
 // ── Drag and Drop ────────────────────────────────────────────
 function calDragStart(event, bookingId, dateStr, timeStr) {
+  // Look up booking status
+  var booking = CAL_STATE.bookings.find(function(b) { return b.id === bookingId; });
+  var status = booking ? booking.status : '';
   CAL_STATE.dragData = {
     bookingId: bookingId,
     originalDate: dateStr,
     originalTime: timeStr,
+    status: status,
   };
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', bookingId);
@@ -520,6 +524,59 @@ function calDragEnd(event) {
   document.querySelectorAll('.cal-day-body').forEach(function(el) {
     el.classList.remove('cal-drag-over');
   });
+  // Remove pending panel drop highlight
+  var pendingList = document.getElementById('ap-pending-list');
+  if (pendingList) pendingList.classList.remove('pending-drag-over');
+}
+
+// ── Pending Panel Drop Target ────────────────────────────────
+// Allows dragging unconfirmed bookings from the calendar back to
+// the pending panel (clears their date/time).
+function calPendingPanelDragOver(event) {
+  if (!CAL_STATE.dragData) return;
+  // Only accept pending (awaiting_owner) bookings
+  if (CAL_STATE.dragData.status !== 'awaiting_owner') return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  var list = document.getElementById('ap-pending-list');
+  if (list) list.classList.add('pending-drag-over');
+}
+
+function calPendingPanelDragLeave(event) {
+  var list = document.getElementById('ap-pending-list');
+  if (!list) return;
+  var related = event.relatedTarget;
+  if (related && list.contains(related)) return;
+  list.classList.remove('pending-drag-over');
+}
+
+async function calPendingPanelDrop(event) {
+  event.preventDefault();
+  var list = document.getElementById('ap-pending-list');
+  if (list) list.classList.remove('pending-drag-over');
+
+  if (!CAL_STATE.dragData) return;
+  if (CAL_STATE.dragData.status !== 'awaiting_owner') {
+    showToast('Only unconfirmed bookings can be moved back to pending.', 'warning');
+    CAL_STATE.dragData = null;
+    return;
+  }
+
+  var bookingId = CAL_STATE.dragData.bookingId;
+  CAL_STATE.dragData = null;
+
+  // Clear the date and time to "unschedule" the booking
+  try {
+    await apiFetch('/v2/api/bookings/' + bookingId + '/edit', {
+      method: 'POST',
+      body: JSON.stringify({ preferred_date: '', preferred_time: '' }),
+    });
+    showToast('Booking moved back to pending.', 'info');
+    await loadCalendarData();
+    renderCalendar();
+  } catch (err) {
+    showToast('Failed to unschedule booking: ' + (err.message || 'Unknown error'), 'error');
+  }
 }
 
 function calDragOver(event) {

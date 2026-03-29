@@ -2727,6 +2727,14 @@ body.ap-body {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+  transition: background 0.15s;
+}
+
+.ap-pending-list.pending-drag-over {
+  background: rgba(245, 158, 11, 0.1);
+  outline: 2px dashed var(--ap-amber);
+  outline-offset: -4px;
+  border-radius: 6px;
 }
 
 .ap-pending-card {

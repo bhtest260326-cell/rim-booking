@@ -422,7 +422,10 @@ HTML_SECTIONS = """
         <span class="ap-card-title">Pending Confirmation</span>
         <span class="ap-badge ap-badge-amber" id="pending-count">0</span>
       </div>
-      <div class="ap-pending-list" id="ap-pending-list">
+      <div class="ap-pending-list" id="ap-pending-list"
+           ondragover="calPendingPanelDragOver(event)"
+           ondragleave="calPendingPanelDragLeave(event)"
+           ondrop="calPendingPanelDrop(event)">
         <div class="ap-text-muted" style="padding:16px;text-align:center;font-size:13px">Loading…</div>
       </div>
     </div>
