@@ -102,6 +102,57 @@ CSS = """
   50%       { box-shadow: 0 0 0 5px rgba(34, 197, 94, 0); }
 }
 
+/* --- Accessibility ----------------------------------------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip-to-content link — visible only on focus */
+.ap-skip-link {
+  position: absolute;
+  top: -100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ap-primary);
+  color: #fff;
+  padding: 8px 24px;
+  border-radius: 0 0 var(--ap-radius-sm) var(--ap-radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 10000;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+
+.ap-skip-link:focus {
+  top: 0;
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Focus styles for keyboard navigation */
+.ap-nav-item:focus-visible,
+.ap-btn:focus-visible,
+.cal-booking-card:focus-visible,
+.ap-pending-card:focus-visible,
+.ap-tab:focus-visible,
+.ap-pill:focus-visible,
+.ap-notification-bell:focus-visible,
+.ap-user-badge:focus-visible,
+.ap-sidebar-toggle:focus-visible,
+.ap-modal-close:focus-visible {
+  outline: 2px solid var(--ap-primary-light);
+  outline-offset: 2px;
+}
+
 /* --- Body & Layout ----------------------------------------- */
 body.ap-body {
   background: var(--ap-bg);
@@ -609,6 +660,9 @@ body.ap-body {
   justify-content: center;
   cursor: pointer;
   color: var(--ap-text-dim);
+  background: transparent;
+  border: none;
+  padding: 0;
   transition: background var(--ap-transition), color var(--ap-transition);
 }
 

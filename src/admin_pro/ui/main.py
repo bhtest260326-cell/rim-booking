@@ -41,7 +41,7 @@ if ('serviceWorker' in navigator) {{
 {HTML_SIDEBAR}
 <div class="ap-main" id="ap-main">
 {HTML_TOPBAR}
-<main class="ap-content">
+<main class="ap-content" role="main" aria-label="Main content">
 {HTML_SECTIONS}
 </main>
 </div>

@@ -2,9 +2,9 @@
 # All SVG icons are inline 24x24 path-based icons (no external libraries)
 
 HTML_SIDEBAR = """
-<aside class="ap-sidebar" id="ap-sidebar">
+<aside class="ap-sidebar" id="ap-sidebar" role="complementary" aria-label="Sidebar navigation">
   <div class="ap-sidebar-logo">
-    <div class="ap-sidebar-logo-icon">
+    <div class="ap-sidebar-logo-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18">
         <path d="M3 17h1.5a2.5 2.5 0 0 0 5 0h6a2.5 2.5 0 0 0 5 0H22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M2 9h14l3 5H2V9z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -14,14 +14,14 @@ HTML_SIDEBAR = """
   </div>
   <div class="ap-brand-strip">
     <span class="ap-brand-name">Control Pro</span>
-    <span class="ap-brand-accent-line"></span>
+    <span class="ap-brand-accent-line" aria-hidden="true"></span>
   </div>
 
-  <nav class="ap-nav">
-    <div class="ap-nav-section-label">OVERVIEW</div>
+  <nav class="ap-nav" role="navigation" aria-label="Main navigation">
+    <div class="ap-nav-section-label" id="nav-label-overview">OVERVIEW</div>
 
-    <button class="ap-nav-item active" data-section="dashboard" onclick="showSection('dashboard')">
-      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button class="ap-nav-item active" data-section="dashboard" onclick="showSection('dashboard')" aria-label="Dashboard" aria-current="page">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <rect x="3" y="3" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.8"/>
         <rect x="13" y="3" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.8"/>
         <rect x="3" y="13" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.8"/>
@@ -30,17 +30,17 @@ HTML_SIDEBAR = """
       <span>Dashboard</span>
     </button>
 
-    <button class="ap-nav-item" data-section="activity" onclick="showSection('activity')">
-      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button class="ap-nav-item" data-section="activity" onclick="showSection('activity')" aria-label="Activity Feed">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <polyline points="22,12 18,12 15,21 9,3 6,12 2,12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       <span>Activity Feed</span>
     </button>
 
-    <div class="ap-nav-section-label">BOOKINGS</div>
+    <div class="ap-nav-section-label" id="nav-label-bookings">BOOKINGS</div>
 
-    <button class="ap-nav-item" data-section="bookings" onclick="showSection('bookings')">
-      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button class="ap-nav-item" data-section="bookings" onclick="showSection('bookings')" aria-label="Bookings">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -49,8 +49,8 @@ HTML_SIDEBAR = """
       <span>Bookings</span>
     </button>
 
-    <button class="ap-nav-item" data-section="calendar" onclick="showSection('calendar')">
-      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button class="ap-nav-item" data-section="calendar" onclick="showSection('calendar')" aria-label="Calendar">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.8"/>
         <line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         <line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -59,8 +59,8 @@ HTML_SIDEBAR = """
       <span>Calendar</span>
     </button>
 
-    <button class="ap-nav-item" data-section="customers" onclick="showSection('customers')">
-      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button class="ap-nav-item" data-section="customers" onclick="showSection('customers')" aria-label="Customers">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="1.8"/>
         <path d="M23 21v-2a4 4 0 0 0-3-3.87" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -69,10 +69,10 @@ HTML_SIDEBAR = """
       <span>Customers</span>
     </button>
 
-    <div class="ap-nav-section-label">ANALYTICS</div>
+    <div class="ap-nav-section-label" id="nav-label-analytics">ANALYTICS</div>
 
-    <button class="ap-nav-item" data-section="analytics" onclick="showSection('analytics')">
-      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button class="ap-nav-item" data-section="analytics" onclick="showSection('analytics')" aria-label="Analytics">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <line x1="18" y1="20" x2="18" y2="10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         <line x1="12" y1="20" x2="12" y2="4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         <line x1="6" y1="20" x2="6" y2="14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -81,18 +81,18 @@ HTML_SIDEBAR = """
       <span>Analytics</span>
     </button>
 
-    <div class="ap-nav-section-label">OPERATIONS</div>
+    <div class="ap-nav-section-label" id="nav-label-operations">OPERATIONS</div>
 
-    <button class="ap-nav-item" data-section="comms" onclick="showSection('comms')">
-      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button class="ap-nav-item" data-section="comms" onclick="showSection('comms')" aria-label="Communications">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       <span>Communications</span>
     </button>
 
-    <button class="ap-nav-item" data-section="system" onclick="showSection('system')">
-      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button class="ap-nav-item" data-section="system" onclick="showSection('system')" aria-label="System settings">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="1.8"/>
       </svg>
@@ -100,8 +100,8 @@ HTML_SIDEBAR = """
     </button>
   </nav>
 
-  <button class="ap-sidebar-toggle" id="ap-sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
-    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18">
+  <button class="ap-sidebar-toggle" id="ap-sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar">
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18" aria-hidden="true">
       <polyline points="15,18 9,12 15,6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
   </button>
@@ -109,7 +109,8 @@ HTML_SIDEBAR = """
 """
 
 HTML_TOPBAR = """
-<div class="ap-topbar">
+<a class="ap-skip-link" href="#section-dashboard">Skip to main content</a>
+<div class="ap-topbar" role="banner">
   <button class="ap-hamburger" id="ap-hamburger" onclick="toggleSidebar()" title="Toggle menu" aria-label="Toggle menu">
     <span></span><span></span><span></span>
   </button>
@@ -118,8 +119,8 @@ HTML_TOPBAR = """
     <span class="ap-page-subtitle" id="ap-page-subtitle">Overview &amp; live metrics</span>
   </div>
   <div class="ap-topbar-center">
-    <div class="ap-search-wrap">
-      <svg class="ap-search-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+    <div class="ap-search-wrap" role="search" aria-label="Global search">
+      <svg class="ap-search-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16" height="16" aria-hidden="true">
         <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/>
         <line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
@@ -130,46 +131,47 @@ HTML_TOPBAR = """
         placeholder="Search bookings, customers..."
         oninput="globalSearch(this.value)"
         autocomplete="off"
+        aria-label="Search bookings and customers"
       >
-      <span class="ap-search-clear" id="ap-search-clear" onclick="clearSearch()" style="display:none">&#10005;</span>
+      <span class="ap-search-clear" id="ap-search-clear" onclick="clearSearch()" style="display:none" role="button" aria-label="Clear search">&#10005;</span>
     </div>
   </div>
   <div class="ap-topbar-right">
-    <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="refreshCurrentSection()" id="ap-refresh-btn" title="Refresh">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="15" height="15" style="margin-right:4px">
+    <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="refreshCurrentSection()" id="ap-refresh-btn" title="Refresh" aria-label="Refresh current section">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="15" height="15" style="margin-right:4px" aria-hidden="true">
         <polyline points="23,4 23,10 17,10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       Refresh
     </button>
-    <div class="ap-notification-bell" id="ap-notif-bell" onclick="toggleNotifications()" title="Notifications">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+    <button class="ap-notification-bell" id="ap-notif-bell" onclick="toggleNotifications()" title="Notifications" aria-label="Toggle notifications" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20" aria-hidden="true">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <span class="ap-notif-count" id="ap-notif-count" style="display:none">0</span>
-    </div>
-    <div class="ap-user-badge" id="ap-user-badge" onclick="toggleAdminDropdown(event)" title="Admin menu">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+      <span class="ap-notif-count" id="ap-notif-count" style="display:none" aria-live="polite">0</span>
+    </button>
+    <div class="ap-user-badge" id="ap-user-badge" onclick="toggleAdminDropdown(event)" title="Admin menu" role="button" aria-label="Admin menu" aria-expanded="false" aria-haspopup="true" tabindex="0">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="16" height="16" aria-hidden="true">
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="1.8"/>
       </svg>
       Admin
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="margin-left:2px;opacity:0.6">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="margin-left:2px;opacity:0.6" aria-hidden="true">
         <polyline points="6,9 12,15 18,9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <div class="ap-user-dropdown" id="ap-admin-dropdown" style="display:none" onclick="event.stopPropagation()">
-        <button class="ap-user-dropdown-item" onclick="showChangePasswordModal()">
-          <svg viewBox="0 0 24 24" fill="none" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <div class="ap-user-dropdown" id="ap-admin-dropdown" style="display:none" onclick="event.stopPropagation()" role="menu" aria-label="Admin actions">
+        <button class="ap-user-dropdown-item" onclick="showChangePasswordModal()" role="menuitem">
+          <svg viewBox="0 0 24 24" fill="none" width="14" height="14" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           Change Password
         </button>
-        <button class="ap-user-dropdown-item" onclick="openDocumentation()">
-          <svg viewBox="0 0 24 24" fill="none" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.8"/><polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="1.8"/></svg>
+        <button class="ap-user-dropdown-item" onclick="openDocumentation()" role="menuitem">
+          <svg viewBox="0 0 24 24" fill="none" width="14" height="14" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.8"/><polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="1.8"/></svg>
           Documentation
         </button>
         <hr class="ap-user-dropdown-divider">
-        <button class="ap-user-dropdown-item danger" onclick="adminLogout()">
-          <svg viewBox="0 0 24 24" fill="none" width="14" height="14"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="16,17 21,12 16,7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <button class="ap-user-dropdown-item danger" onclick="adminLogout()" role="menuitem">
+          <svg viewBox="0 0 24 24" fill="none" width="14" height="14" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="16,17 21,12 16,7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           Logout
         </button>
       </div>
@@ -180,7 +182,7 @@ HTML_TOPBAR = """
 
 HTML_SECTIONS = """
 <!-- ═══════════════════════════════════════════════ DASHBOARD ══ -->
-<section class="ap-section active" id="section-dashboard">
+<section class="ap-section active" id="section-dashboard" role="region" aria-label="Dashboard overview">
   <div class="ap-grid-4 ap-kpi-row">
     <div class="ap-card ap-kpi-card" id="kpi-pending">
       <div class="ap-kpi-label">Pending Bookings</div>
@@ -220,8 +222,8 @@ HTML_SECTIONS = """
         <span class="ap-card-title">Recent Bookings</span>
         <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="showSection('bookings')">View all</button>
       </div>
-      <div class="ap-table-wrap ap-recent-bookings-wrap">
-        <table class="ap-table" id="recent-bookings-table">
+      <div class="ap-table-wrap ap-recent-bookings-wrap" aria-live="polite">
+        <table class="ap-table" id="recent-bookings-table" aria-label="Recent bookings">
           <thead>
             <tr>
               <th>Customer</th>
@@ -242,7 +244,7 @@ HTML_SECTIONS = """
         <span class="ap-card-title">Today's Schedule</span>
         <span class="ap-card-sub" id="todays-date-label"></span>
       </div>
-      <div class="ap-today-jobs" id="today-jobs-list">
+      <div class="ap-today-jobs" id="today-jobs-list" aria-live="polite">
         <div class="ap-today-empty">Loading today's jobs…</div>
       </div>
     </div>
@@ -274,7 +276,7 @@ HTML_SECTIONS = """
 </section>
 
 <!-- ═══════════════════════════════════════════════ BOOKINGS ══ -->
-<section class="ap-section" id="section-bookings">
+<section class="ap-section" id="section-bookings" role="region" aria-label="Bookings management">
   <div class="ap-card">
     <div class="ap-filter-bar">
       <div class="ap-status-pills" id="booking-status-pills">
@@ -297,11 +299,11 @@ HTML_SECTIONS = """
       </div>
     </div>
 
-    <div class="ap-table-wrap" id="bookings-table-wrap">
-      <table class="ap-table ap-table-hover" id="bookings-table">
+    <div class="ap-table-wrap" id="bookings-table-wrap" aria-live="polite">
+      <table class="ap-table ap-table-hover" id="bookings-table" aria-label="All bookings">
         <thead>
           <tr>
-            <th class="ap-th-check"><input type="checkbox" id="select-all-bookings" onchange="toggleSelectAll(this)"></th>
+            <th class="ap-th-check"><input type="checkbox" id="select-all-bookings" onchange="toggleSelectAll(this)" aria-label="Select all bookings"></th>
             <th class="ap-th-sortable" onclick="sortBookings('name')">Customer <span class="ap-sort-arrow">↕</span></th>
             <th class="ap-th-sortable" onclick="sortBookings('date')">Date <span class="ap-sort-arrow">↕</span></th>
             <th>Time</th>
@@ -325,7 +327,7 @@ HTML_SECTIONS = """
 </section>
 
 <!-- ═══════════════════════════════════════════════ ANALYTICS ══ -->
-<section class="ap-section" id="section-analytics">
+<section class="ap-section" id="section-analytics" role="region" aria-label="Analytics and metrics">
   <div class="ap-grid-4 ap-kpi-row">
     <div class="ap-card ap-kpi-card" id="ana-conversion">
       <div class="ap-kpi-label">Conversion Rate</div>
@@ -408,7 +410,7 @@ HTML_SECTIONS = """
 </section>
 
 <!-- ═══════════════════════════════════════════════ CALENDAR ══ -->
-<section class="ap-section" id="section-calendar">
+<section class="ap-section" id="section-calendar" role="region" aria-label="Calendar schedule">
   <div class="ap-calendar-layout">
     <div class="ap-calendar-main">
       <div id="ap-calendar-header"></div>
@@ -417,12 +419,12 @@ HTML_SECTIONS = """
       </div>
     </div>
 
-    <div class="ap-calendar-pending-panel" id="ap-pending-panel">
+    <div class="ap-calendar-pending-panel" id="ap-pending-panel" role="complementary" aria-label="Pending bookings">
       <div class="ap-pending-header">
-        <span class="ap-card-title">Pending Confirmation</span>
+        <h2 class="ap-card-title">Pending Confirmation</h2>
         <span class="ap-badge ap-badge-amber" id="pending-count">0</span>
       </div>
-      <div class="ap-pending-list" id="ap-pending-list"
+      <div class="ap-pending-list" id="ap-pending-list" aria-live="polite"
            ondragover="calPendingPanelDragOver(event)"
            ondragleave="calPendingPanelDragLeave(event)"
            ondrop="calPendingPanelDrop(event)">
@@ -433,31 +435,31 @@ HTML_SECTIONS = """
 </section>
 
 <!-- ═══════════════════════════════════════════════ COMMS ══ -->
-<section class="ap-section" id="section-comms">
-  <div class="ap-tabs" id="comms-tabs">
-    <button class="ap-tab active" data-tab="gmail" onclick="switchCommsTab('gmail')">
+<section class="ap-section" id="section-comms" role="region" aria-label="Communications">
+  <div class="ap-tabs" id="comms-tabs" role="tablist" aria-label="Communication channels">
+    <button class="ap-tab active" data-tab="gmail" onclick="switchCommsTab('gmail')" role="tab" aria-selected="true" aria-controls="comms-gmail">
       <svg viewBox="0 0 24 24" fill="none" width="15" height="15" style="margin-right:5px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="1.8"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="1.8"/></svg>
       Gmail
       <span class="ap-tab-badge" id="tab-badge-gmail"></span>
     </button>
-    <button class="ap-tab" data-tab="dlq" onclick="switchCommsTab('dlq')">
+    <button class="ap-tab" data-tab="dlq" onclick="switchCommsTab('dlq')" role="tab" aria-selected="false" aria-controls="comms-dlq">
       Dead-Letter Queue
       <span class="ap-tab-badge" id="tab-badge-dlq"></span>
     </button>
-    <button class="ap-tab" data-tab="clarifications" onclick="switchCommsTab('clarifications')">
+    <button class="ap-tab" data-tab="clarifications" onclick="switchCommsTab('clarifications')" role="tab" aria-selected="false" aria-controls="comms-clarifications">
       Clarifications
       <span class="ap-tab-badge" id="tab-badge-clarifications"></span>
     </button>
-    <button class="ap-tab" data-tab="waitlist" onclick="switchCommsTab('waitlist')">
+    <button class="ap-tab" data-tab="waitlist" onclick="switchCommsTab('waitlist')" role="tab" aria-selected="false" aria-controls="comms-waitlist">
       Waitlist
       <span class="ap-tab-badge" id="tab-badge-waitlist"></span>
     </button>
-    <button class="ap-tab" data-tab="sms" onclick="switchCommsTab('sms')">
+    <button class="ap-tab" data-tab="sms" onclick="switchCommsTab('sms')" role="tab" aria-selected="false" aria-controls="comms-sms">
       Send SMS
     </button>
   </div>
 
-  <div class="ap-tab-content active" id="comms-gmail">
+  <div class="ap-tab-content active" id="comms-gmail" role="tabpanel" aria-label="Gmail inbox">
     <div class="ap-card">
       <div class="ap-card-header">
         <span class="ap-card-title">Inbox Queue</span>
@@ -476,7 +478,7 @@ HTML_SECTIONS = """
     </div>
   </div>
 
-  <div class="ap-tab-content" id="comms-dlq">
+  <div class="ap-tab-content" id="comms-dlq" role="tabpanel" aria-label="Dead-letter queue">
     <div class="ap-card">
       <div class="ap-card-header">
         <span class="ap-card-title">Dead-Letter Queue</span>
@@ -496,7 +498,7 @@ HTML_SECTIONS = """
     </div>
   </div>
 
-  <div class="ap-tab-content" id="comms-clarifications">
+  <div class="ap-tab-content" id="comms-clarifications" role="tabpanel" aria-label="Pending clarifications">
     <div class="ap-card">
       <div class="ap-card-header">
         <span class="ap-card-title">Pending Clarifications</span>
@@ -516,7 +518,7 @@ HTML_SECTIONS = """
     </div>
   </div>
 
-  <div class="ap-tab-content" id="comms-waitlist">
+  <div class="ap-tab-content" id="comms-waitlist" role="tabpanel" aria-label="Waitlist">
     <div class="ap-card">
       <div class="ap-card-header">
         <span class="ap-card-title">Waitlist</span>
@@ -536,7 +538,7 @@ HTML_SECTIONS = """
     </div>
   </div>
 
-  <div class="ap-tab-content" id="comms-sms">
+  <div class="ap-tab-content" id="comms-sms" role="tabpanel" aria-label="Send SMS">
     <div class="ap-card">
       <div class="ap-card-header">
         <span class="ap-card-title">Send Manual SMS</span>
@@ -576,7 +578,7 @@ HTML_SECTIONS = """
 </section>
 
 <!-- ═══════════════════════════════════════════════ CUSTOMERS ══ -->
-<section class="ap-section" id="section-customers">
+<section class="ap-section" id="section-customers" role="region" aria-label="Customer management">
   <div class="ap-grid-customers">
     <div class="ap-card ap-customers-list-card">
       <div class="ap-card-header">
@@ -614,7 +616,7 @@ HTML_SECTIONS = """
 </section>
 
 <!-- ═══════════════════════════════════════════════ SYSTEM ══ -->
-<section class="ap-section" id="section-system">
+<section class="ap-section" id="section-system" role="region" aria-label="System settings">
   <div class="ap-grid-4">
     <div class="ap-card ap-health-card" id="health-gmail">
       <div class="ap-health-icon">
@@ -709,7 +711,7 @@ HTML_SECTIONS = """
 </section>
 
 <!-- ═══════════════════════════════════════════════ ACTIVITY ══ -->
-<section class="ap-section" id="section-activity">
+<section class="ap-section" id="section-activity" role="region" aria-label="Activity feed">
   <div class="ap-card">
     <div class="ap-card-header">
       <span class="ap-card-title">Activity Feed</span>
@@ -732,7 +734,7 @@ HTML_SECTIONS = """
       </div>
     </div>
 
-    <div class="ap-activity-feed" id="activity-feed">
+    <div class="ap-activity-feed" id="activity-feed" aria-live="polite">
       <div class="ap-activity-loading">Loading activity feed…</div>
     </div>
 
@@ -744,10 +746,10 @@ HTML_SECTIONS = """
 """
 
 HTML_MODALS = """
-<div class="ap-modal-overlay" id="ap-modal-overlay" onclick="closeModal()">
+<div class="ap-modal-overlay" id="ap-modal-overlay" onclick="closeModal()" role="dialog" aria-modal="true" aria-labelledby="ap-modal-title">
   <div class="ap-modal" id="ap-modal" onclick="event.stopPropagation()">
     <div class="ap-modal-header">
-      <h3 class="ap-modal-title" id="ap-modal-title">Title</h3>
+      <h2 class="ap-modal-title" id="ap-modal-title">Title</h2>
       <button class="ap-modal-close" id="ap-modal-close" onclick="closeModal()" aria-label="Close modal">&#10005;</button>
     </div>
     <div class="ap-modal-body" id="ap-modal-body"></div>
@@ -755,15 +757,15 @@ HTML_MODALS = """
   </div>
 </div>
 
-<div class="ap-toast-container" id="ap-toast-container"></div>
+<div class="ap-toast-container" id="ap-toast-container" aria-live="assertive" role="alert"></div>
 
-<div class="ap-notification-panel" id="ap-notification-panel" style="display:none">
+<div class="ap-notification-panel" id="ap-notification-panel" style="display:none" role="region" aria-label="Notifications panel">
   <div class="ap-notif-panel-header">
-    <span class="ap-card-title">Notifications</span>
-    <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="clearAllNotifications()">Clear all</button>
-    <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="toggleNotifications()">✕</button>
+    <h2 class="ap-card-title">Notifications</h2>
+    <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="clearAllNotifications()" aria-label="Clear all notifications">Clear all</button>
+    <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="toggleNotifications()" aria-label="Close notifications">&#10005;</button>
   </div>
-  <div class="ap-notif-list" id="ap-notif-list">
+  <div class="ap-notif-list" id="ap-notif-list" aria-live="polite">
     <div class="ap-notif-empty">No new notifications.</div>
   </div>
 </div>

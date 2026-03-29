@@ -167,7 +167,8 @@ function _calRenderPendingPanel() {
     var service = serviceLabel(bd.service_type);
     var suburb = escapeHtml(bd.suburb || bd.address_suburb || '');
 
-    html += '<div class="ap-pending-card" draggable="true" ';
+    html += '<div class="ap-pending-card" draggable="true" tabindex="0" ';
+    html += 'role="button" aria-label="Pending booking: ' + name + ', ' + date + '" ';
     html += 'data-booking-id="' + b.id + '" ';
     html += 'ondragstart="calPendingDragStart(event, \\'' + b.id + '\\')" ';
     html += 'ondragend="calPendingDragEnd(event)" ';
@@ -410,11 +411,11 @@ function renderCalendar() {
   html += '<style>' + _calGetStyles() + '</style>';
 
   // ── Header row with navigation
-  html += '<div class="cal-nav-header">';
-  html += '<button class="cal-nav-btn" onclick="calNavWeek(-1)" title="Previous week">&#9664;</button>';
-  html += '<span class="cal-nav-label">' + headerLabel + '</span>';
-  html += '<button class="cal-nav-btn" onclick="calNavWeek(1)" title="Next week">&#9654;</button>';
-  html += '<button class="cal-nav-today-btn" onclick="calGoToday()">Today</button>';
+  html += '<div class="cal-nav-header" role="toolbar" aria-label="Calendar navigation">';
+  html += '<button class="cal-nav-btn" onclick="calNavWeek(-1)" title="Previous week" aria-label="Previous week"><span aria-hidden="true">&#9664;</span></button>';
+  html += '<span class="cal-nav-label" aria-live="polite">' + headerLabel + '</span>';
+  html += '<button class="cal-nav-btn" onclick="calNavWeek(1)" title="Next week" aria-label="Next week"><span aria-hidden="true">&#9654;</span></button>';
+  html += '<button class="cal-nav-today-btn" onclick="calGoToday()" aria-label="Go to current week">Today</button>';
   html += '</div>';
 
   // Update the static title element if it exists
@@ -558,7 +559,8 @@ function _calRenderBookingCard(b, dateStr, layout) {
   var html = '';
   html += '<div class="cal-booking-card ' + colorClass + (isChanged ? ' cal-card-changed' : '') + '" ';
   html += 'style="top:' + topPx + 'px;height:' + heightPx + 'px;left:calc(' + leftPct + '% + 1px);width:calc(' + colWidth + '% - 2px)" ';
-  html += 'draggable="true" ';
+  html += 'draggable="true" tabindex="0" ';
+  html += 'role="button" aria-label="' + name + ' at ' + displayTime + ', ' + service + '" ';
   html += 'data-booking-id="' + b.id + '" ';
   html += 'data-date="' + dateStr + '" ';
   html += 'data-time="' + escapeHtml(timeStr) + '" ';
@@ -925,7 +927,48 @@ async function calDeclineBooking(bookingId, dateStr) {
   }
 }
 
-// ── Scoped Styles ────────────────────────────────────────────
+// ── Calendar Keyboard Navigation ────────────────────────────
+document.addEventListener('keydown', function(e) {
+  // Only handle keys when calendar section is active
+  if (APP.currentSection !== 'calendar') return;
+
+  // Don't interfere with inputs or modals
+  var tag = (document.activeElement || {}).tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  var modalOverlay = document.getElementById('ap-modal-overlay');
+  if (modalOverlay && modalOverlay.classList.contains('open')) return;
+
+  var handled = false;
+
+  // Arrow Left / Right: navigate weeks
+  if (e.key === 'ArrowLeft' && !e.shiftKey) {
+    calNavWeek(-1);
+    handled = true;
+  } else if (e.key === 'ArrowRight' && !e.shiftKey) {
+    calNavWeek(1);
+    handled = true;
+  }
+
+  // Arrow Up / Down: scroll the calendar grid
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    var grid = document.getElementById('ap-calendar-grid');
+    if (grid) {
+      var scrollDelta = e.key === 'ArrowUp' ? -CAL_SLOT_HEIGHT * 2 : CAL_SLOT_HEIGHT * 2;
+      grid.scrollTop += scrollDelta;
+      handled = true;
+    }
+  }
+
+  // 't' key: go to today
+  if (e.key === 't' || e.key === 'T') {
+    calGoToday();
+    handled = true;
+  }
+
+  if (handled) e.preventDefault();
+});
+
+//── Scoped Styles ────────────────────────────────────────────
 function _calGetStyles() {
   return '' +
 

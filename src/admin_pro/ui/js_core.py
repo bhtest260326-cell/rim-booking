@@ -63,8 +63,10 @@ function showSection(name) {
   // Update nav active state
   document.querySelectorAll('.ap-nav-item').forEach(el => {
     el.classList.remove('active');
+    el.removeAttribute('aria-current');
     if (el.dataset.section === name) {
       el.classList.add('active');
+      el.setAttribute('aria-current', 'page');
     }
   });
 
@@ -244,9 +246,14 @@ function sanitizeHtml(html) {
 }
 
 // ── Modal Management ─────────────────────────────────────────
+let _modalTriggerElement = null;
+
 function showModal(title, bodyHtml, footerHtml = '') {
   const overlay = document.getElementById('ap-modal-overlay');
   if (!overlay) return;
+
+  // Store the element that triggered the modal so we can return focus
+  _modalTriggerElement = document.activeElement;
 
   document.getElementById('ap-modal-title').innerHTML = title;
   document.getElementById('ap-modal-body').innerHTML  = bodyHtml;
@@ -256,6 +263,17 @@ function showModal(title, bodyHtml, footerHtml = '') {
   // Force reflow before adding .open so the CSS opacity transition fires
   void overlay.offsetWidth;
   overlay.classList.add('open');
+
+  // Focus the first focusable element in the modal, or the close button
+  requestAnimationFrame(() => {
+    const modal = document.getElementById('ap-modal');
+    if (modal) {
+      const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      }
+    }
+  });
 }
 
 function closeModal() {
@@ -264,6 +282,43 @@ function closeModal() {
   overlay.classList.remove('open');
   // Hide after transition completes (200ms matches CSS transition)
   setTimeout(() => { if (!overlay.classList.contains('open')) overlay.style.display = 'none'; }, 210);
+
+  // Return focus to the trigger element
+  if (_modalTriggerElement && typeof _modalTriggerElement.focus === 'function') {
+    _modalTriggerElement.focus();
+    _modalTriggerElement = null;
+  }
+}
+
+// ── Focus Trap for Modals ───────────────────────────────────
+function _trapFocusInModal(e) {
+  const overlay = document.getElementById('ap-modal-overlay');
+  if (!overlay || !overlay.classList.contains('open')) return;
+
+  if (e.key !== 'Tab') return;
+
+  const modal = document.getElementById('ap-modal');
+  if (!modal) return;
+
+  const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (focusable.length === 0) return;
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+
+  if (e.shiftKey) {
+    // Shift+Tab: if on first element, wrap to last
+    if (document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    }
+  } else {
+    // Tab: if on last element, wrap to first
+    if (document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
 }
 
 // ── Date / Time Utilities ────────────────────────────────────
@@ -509,9 +564,11 @@ function clearSearch() {
 function toggleNotifications() {
   // Placeholder — a notifications panel can be injected here
   const panel = document.getElementById('ap-notification-panel');
+  const bell = document.getElementById('ap-notif-bell');
   if (panel) {
     const isVisible = panel.style.display !== 'none' && panel.style.display !== '';
     panel.style.display = isVisible ? 'none' : 'block';
+    if (bell) bell.setAttribute('aria-expanded', String(!isVisible));
   } else {
     showToast('No new notifications.', 'info', 3000);
   }
@@ -550,14 +607,18 @@ async function loadNotificationCount() {
 function toggleAdminDropdown(e) {
   e.stopPropagation();
   const dropdown = document.getElementById('ap-admin-dropdown');
+  const badge = document.getElementById('ap-user-badge');
   if (!dropdown) return;
   const isOpen = dropdown.style.display !== 'none';
   dropdown.style.display = isOpen ? 'none' : 'block';
+  if (badge) badge.setAttribute('aria-expanded', String(!isOpen));
 }
 
 function closeAdminDropdown() {
   const dropdown = document.getElementById('ap-admin-dropdown');
+  const badge = document.getElementById('ap-user-badge');
   if (dropdown) dropdown.style.display = 'none';
+  if (badge) badge.setAttribute('aria-expanded', 'false');
 }
 
 function showChangePasswordModal() {
@@ -647,8 +708,30 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.key === 'Escape') {
       closeModal();
       closeAdminDropdown();
+      closeSidebarMobile();
+    }
+
+    // Enter to confirm: click the primary button in an open modal
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+      const overlay = document.getElementById('ap-modal-overlay');
+      if (overlay && overlay.classList.contains('open')) {
+        // Only if focus is not on a textarea or other multi-line input
+        if (document.activeElement && document.activeElement.tagName !== 'TEXTAREA') {
+          const primaryBtn = document.querySelector('#ap-modal-footer .ap-btn-primary');
+          if (primaryBtn && document.activeElement !== primaryBtn) {
+            // Don't intercept if user is focused on another button
+            if (document.activeElement.tagName !== 'BUTTON') {
+              e.preventDefault();
+              primaryBtn.click();
+            }
+          }
+        }
+      }
     }
   });
+
+  // Focus trapping for modals
+  document.addEventListener('keydown', _trapFocusInModal);
 
   // Close admin dropdown when clicking anywhere outside
   document.addEventListener('click', function(e) {
