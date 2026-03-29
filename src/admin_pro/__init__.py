@@ -15,7 +15,7 @@ admin_pro_bp = Blueprint('admin_pro', __name__, url_prefix='/v2')
 # In-memory session store: session_id -> expiry unix timestamp.
 # Sessions expire after 24 hours. Cleared on process restart (Railway redeploy).
 _SESSIONS: dict = {}
-_SESSION_TTL = 86400  # 24 hours
+_SESSION_TTL = 28800  # 8 hours
 
 # ---------------------------------------------------------------------------
 # Simple in-memory rate limiter for brute-force protection.
@@ -36,7 +36,38 @@ def _rate_limit_check(ip: str) -> bool:
     blocked_until = _rate_blocked_until.get(ip, 0)
     if now < blocked_until:
         return True
+    # Also check SQLite persistence (catches blocks from previous process)
+    persisted = _load_block(ip)
+    if now < persisted:
+        _rate_blocked_until[ip] = persisted  # Restore to in-memory cache
+        return True
     return False
+
+
+def _persist_block(ip: str, blocked_until: float) -> None:
+    """Persist an IP block to SQLite so it survives process restarts."""
+    try:
+        from state_manager import _get_conn
+        with _get_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO app_state(key, value) VALUES(?, ?)",
+                (f"ratelimit_{ip}", str(blocked_until))
+            )
+    except Exception:
+        pass  # Don't let persistence failure break rate limiting
+
+
+def _load_block(ip: str) -> float:
+    """Load a persisted IP block timestamp from SQLite."""
+    try:
+        from state_manager import _get_conn
+        with _get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM app_state WHERE key=?", (f"ratelimit_{ip}",)
+            ).fetchone()
+            return float(row['value']) if row else 0.0
+    except Exception:
+        return 0.0
 
 
 def _rate_limit_record_failure(ip: str) -> None:
@@ -46,7 +77,9 @@ def _rate_limit_record_failure(ip: str) -> None:
     _rate_fail_times[ip] = [t for t in _rate_fail_times[ip] if now - t < _RATE_LIMIT_WINDOW]
     _rate_fail_times[ip].append(now)
     if len(_rate_fail_times[ip]) >= _RATE_LIMIT_MAX:
-        _rate_blocked_until[ip] = now + _RATE_LIMIT_BLOCK_SECS
+        blocked_until = now + _RATE_LIMIT_BLOCK_SECS
+        _rate_blocked_until[ip] = blocked_until
+        _persist_block(ip, blocked_until)  # Persist so block survives restarts
         logger.warning("Rate-limit: blocked IP %s for %ds after %d failures",
                        ip, _RATE_LIMIT_BLOCK_SECS, len(_rate_fail_times[ip]))
         _rate_fail_times[ip] = []  # reset counter after block is applied
@@ -78,33 +111,56 @@ def _credentials_valid() -> bool:
     """Check if the current request carries valid Basic Auth or token credentials.
 
     All secret comparisons use hmac.compare_digest to prevent timing attacks.
+
+    TOTP MFA: if ADMIN_TOTP_SECRET is set, Basic Auth password must be
+    the real password immediately followed by the 6-digit TOTP code.
+    Example: password="secret", TOTP="123456" → enter "secret123456".
     """
     admin_password = os.environ.get('ADMIN_PASSWORD', '')
     admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
     admin_token = os.environ.get('ADMIN_TOKEN', '')
+    totp_secret = os.environ.get('ADMIN_TOTP_SECRET', '')
 
-    # No security configured — dev mode
+    # No security configured — allow only in local dev (no Railway env)
     if not admin_password and not admin_token:
-        return True
+        on_railway = bool(os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_SERVICE_NAME'))
+        if not on_railway:
+            return True  # local dev mode only
+        logger.critical("ADMIN: No credentials configured in production — all requests rejected")
+        return False
 
     # Token query param — constant-time comparison
     if admin_token:
         supplied_token = request.args.get('token', '')
-        if hmac.compare_digest(supplied_token.encode(), admin_token.encode()):
+        if supplied_token and hmac.compare_digest(supplied_token.encode(), admin_token.encode()):
             return True
 
-    # HTTP Basic Auth — constant-time comparison for both username and password
+    # HTTP Basic Auth — constant-time comparison
     if admin_password:
         auth = request.authorization
         if auth:
             username_ok = hmac.compare_digest(
                 (auth.username or '').encode(), admin_username.encode()
             )
-            password_ok = hmac.compare_digest(
-                (auth.password or '').encode(), admin_password.encode()
-            )
-            if username_ok and password_ok:
-                return True
+            supplied_pw = auth.password or ''
+            if totp_secret:
+                # TOTP mode: last 6 chars are the TOTP code, rest is the password
+                if len(supplied_pw) >= 7:
+                    totp_code = supplied_pw[-6:]
+                    actual_pw = supplied_pw[:-6]
+                    try:
+                        import pyotp
+                        totp_ok = pyotp.TOTP(totp_secret).verify(totp_code, valid_window=1)
+                    except Exception:
+                        totp_ok = False
+                    password_ok = hmac.compare_digest(actual_pw.encode(), admin_password.encode())
+                    if username_ok and password_ok and totp_ok:
+                        return True
+                # TOTP required but not provided — reject
+            else:
+                password_ok = hmac.compare_digest(supplied_pw.encode(), admin_password.encode())
+                if username_ok and password_ok:
+                    return True
 
     return False
 
@@ -115,16 +171,23 @@ def require_auth(f):
         admin_password = os.environ.get('ADMIN_PASSWORD', '')
         admin_token = os.environ.get('ADMIN_TOKEN', '')
 
-        # Dev mode — no auth configured
+        # Dev mode — no auth configured (local only)
         if not admin_password and not admin_token:
-            return f(*args, **kwargs)
+            on_railway = bool(os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_SERVICE_NAME'))
+            if not on_railway:
+                return f(*args, **kwargs)
 
         # Determine client IP for rate limiting
-        client_ip = (
-            request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
-            or request.remote_addr
-            or 'unknown'
-        )
+        # Only trust X-Forwarded-For on Railway where the edge proxy is controlled
+        on_railway = bool(os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_SERVICE_NAME'))
+        if on_railway:
+            client_ip = (
+                request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+                or request.remote_addr
+                or 'unknown'
+            )
+        else:
+            client_ip = request.remote_addr or 'unknown'
 
         # Check if IP is currently rate-limited
         if _rate_limit_check(client_ip):

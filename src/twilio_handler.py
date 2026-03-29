@@ -42,6 +42,40 @@ def normalise_phone(number):
         return f'+61{digits[1:]}'
     return number
 
+_sms_limit_alerted_date = None  # prevent repeated alerts on the same day
+
+def _alert_owner_sms_limit():
+    """Send an email alert to the owner when the Twilio daily SMS limit is hit."""
+    global _sms_limit_alerted_date
+    from datetime import date
+    today = date.today().isoformat()
+    if _sms_limit_alerted_date == today:
+        return  # already alerted today
+    _sms_limit_alerted_date = today
+    try:
+        owner_email = os.environ.get('OWNER_EMAIL', '')
+        if not owner_email:
+            return
+        from google_auth import get_gmail_service
+        from email.mime.text import MIMEText as _MIMEText
+        import base64 as _b64
+        msg = _MIMEText(
+            "The Twilio daily SMS limit has been reached. "
+            "Outbound SMS messages will not be delivered until tomorrow. "
+            "Consider upgrading your Twilio plan if this recurs frequently."
+        )
+        msg['to'] = owner_email
+        msg['subject'] = '[Wheel Doctor] Twilio SMS limit reached'
+        svc = get_gmail_service()
+        svc.users().messages().send(
+            userId='me',
+            body={'raw': _b64.urlsafe_b64encode(msg.as_bytes()).decode()}
+        ).execute()
+        logger.info("Owner notified of Twilio SMS limit via email")
+    except Exception as exc:
+        logger.error("Could not send Twilio-limit alert email: %s", exc)
+
+
 def send_sms(to, body):
     normed = normalise_phone(to)
     if not normed or not normed.startswith('+'):
@@ -59,6 +93,7 @@ def send_sms(to, body):
     except TwilioRestException as e:
         if e.code == 63038 or getattr(e, 'status', None) == 429:
             logger.warning(f"Twilio daily SMS limit reached (429) — SMS to {normed} not sent. Will retry next day.")
+            _alert_owner_sms_limit()
         else:
             logger.error(f"Twilio error sending to {normed}: {e}")
         return None

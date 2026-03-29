@@ -115,6 +115,14 @@ def register(bp, require_auth):
     # GET /api/system/db-stats
     # ------------------------------------------------------------------
 
+    # Allowlist of known tables — prevents dynamic SQL on unexpected table names
+    _ALLOWED_TABLES = {
+        'bookings', 'clarifications', 'processed_emails', 'processed_sms',
+        'app_state', 'booking_events', 'failed_extractions',
+        'customer_service_history', 'waitlist', 'message_queue',
+        'data_retention_log', 'sms_log',
+    }
+
     @bp.route('/api/system/db-stats', methods=['GET'])
     @require_auth
     def db_stats():
@@ -126,12 +134,10 @@ def register(bp, require_auth):
             tables = []
             total_rows = 0
             for (name,) in tables_rows:
+                if name not in _ALLOWED_TABLES:
+                    continue  # Skip any unexpected tables
                 try:
-                    # Use a parameterized-style quoting: sqlite3 double-quotes
-                    # identifiers; name comes from sqlite_master (not user input)
-                    # but we still sanitize to only allow safe identifier chars.
-                    safe_name = name.replace('"', '""')
-                    count_row = conn.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()
+                    count_row = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()
                     count = count_row[0] if count_row else 0
                 except Exception:
                     count = 0

@@ -4,10 +4,9 @@ admin_ui.py — Flask blueprint for the owner control panel.
 Accessible at:  GET  /admin          — dashboard with toggle switches
                 POST /admin/toggle   — flip a single flag
 
-Protection: set ADMIN_TOKEN env var in Railway. Access the page at
-            https://your-app.railway.app/admin?token=YOUR_TOKEN
-            and bookmark that URL. If ADMIN_TOKEN is not set, no auth
-            is required (fine for local dev).
+Protection: set ADMIN_TOKEN env var in Railway. Pass the token via the
+            X-Admin-Token request header. If ADMIN_TOKEN is not set, no
+            auth is required (fine for local dev).
 """
 
 import os
@@ -65,23 +64,30 @@ def _require_admin_auth(f):
 
 
 # ---------------------------------------------------------------------------
-# Legacy token-based auth helper (retained for backward compat with JS calls)
+# Legacy token-based auth helper
 # ---------------------------------------------------------------------------
 
 def _authorised() -> bool:
+    # If Basic Auth is active and the request passed _require_admin_auth, trust it
+    if _admin_pass:
+        auth = request.authorization
+        if auth and auth.username == _admin_user and auth.password == _admin_pass:
+            return True
     if not ADMIN_TOKEN:
         return True
+    # Accept token from header or POST body only — never from URL query params
+    # (tokens in URLs appear in server logs and browser history)
     tok = (
         request.headers.get('X-Admin-Token') or
-        request.args.get('token') or
-        request.form.get('token', '')
+        request.form.get('token', '') or
+        (request.get_json(silent=True) or {}).get('token', '')
     )
     return hmac.compare_digest(tok, ADMIN_TOKEN)
 
 
 def _qs() -> str:
-    """Return ?token=… query string to preserve auth across page loads."""
-    return f'?token={ADMIN_TOKEN}' if ADMIN_TOKEN else ''
+    """Kept for template compatibility — returns empty string (token no longer in URL)."""
+    return ''
 
 
 # ---------------------------------------------------------------------------

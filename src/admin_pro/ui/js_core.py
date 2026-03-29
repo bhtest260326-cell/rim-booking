@@ -98,6 +98,11 @@ async function apiFetch(path, options = {}) {
   if ((method === 'POST' || method === 'PUT') && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
+  // Include CSRF token for state-changing requests (read from ap_csrf cookie)
+  if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+    const csrfMatch = document.cookie.match(/(?:^|;\\s*)ap_csrf=([^;]+)/);
+    if (csrfMatch) headers['X-CSRF-Token'] = decodeURIComponent(csrfMatch[1]);
+  }
 
   let response;
   try {
@@ -210,14 +215,35 @@ function showToast(message, type = 'info', duration = 4000) {
   return toast;
 }
 
+// ── HTML Sanitizer (H5 — prevent XSS in modal innerHTML) ────
+function sanitizeHtml(html) {
+  if (!html) return '';
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  // Remove dangerous elements
+  div.querySelectorAll('script,style,iframe,object,embed,link,meta,base').forEach(el => el.remove());
+  // Strip event handlers and javascript: hrefs from all elements
+  div.querySelectorAll('*').forEach(el => {
+    Array.from(el.attributes).forEach(attr => {
+      if (attr.name.startsWith('on')) { el.removeAttribute(attr.name); return; }
+      const val = (attr.value || '').trim().toLowerCase().replace(/\\s/g, '');
+      if ((attr.name === 'href' || attr.name === 'src' || attr.name === 'action') &&
+          (val.startsWith('javascript:') || val.startsWith('vbscript:'))) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return div.innerHTML;
+}
+
 // ── Modal Management ─────────────────────────────────────────
 function showModal(title, bodyHtml, footerHtml = '') {
   const overlay = document.getElementById('ap-modal-overlay');
   if (!overlay) return;
 
   document.getElementById('ap-modal-title').textContent = title;
-  document.getElementById('ap-modal-body').innerHTML  = bodyHtml;
-  document.getElementById('ap-modal-footer').innerHTML = footerHtml;
+  document.getElementById('ap-modal-body').innerHTML  = sanitizeHtml(bodyHtml);
+  document.getElementById('ap-modal-footer').innerHTML = sanitizeHtml(footerHtml);
 
   overlay.style.display = 'flex';
   // Force reflow before adding .open so the CSS opacity transition fires

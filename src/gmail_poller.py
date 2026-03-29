@@ -362,7 +362,39 @@ def register_gmail_watch():
         return result
     except Exception as e:
         logger.error(f"Gmail watch registration failed: {e}")
+        _alert_owner_watch_failure(str(e))
         return None
+
+
+def _alert_owner_watch_failure(detail: str) -> None:
+    """SMS + email alert to owner when Gmail watch renewal fails (Fix M5)."""
+    try:
+        owner_phone = os.environ.get('OWNER_PHONE', '') or os.environ.get('OWNER_MOBILE', '')
+        if owner_phone:
+            from twilio_handler import send_sms
+            send_sms(owner_phone, f"[Wheel Doctor] Gmail watch renewal FAILED — booking emails may not be processed. Check logs. Detail: {detail[:120]}")
+    except Exception as sms_err:
+        logger.error("Could not send Gmail watch failure SMS: %s", sms_err)
+    try:
+        owner_email = os.environ.get('OWNER_EMAIL', '')
+        if not owner_email:
+            return
+        from google_auth import get_gmail_service
+        from email.mime.text import MIMEText as _MIMEText
+        import base64 as _b64
+        msg = _MIMEText(
+            f"Gmail watch renewal failed. Incoming booking emails may not be processed automatically.\n\n"
+            f"Detail: {detail}\n\nPlease check Railway logs and renew the watch manually if needed."
+        )
+        msg['to'] = owner_email
+        msg['subject'] = '[Wheel Doctor] Gmail watch renewal failed'
+        svc = get_gmail_service()
+        svc.users().messages().send(
+            userId='me',
+            body={'raw': _b64.urlsafe_b64encode(msg.as_bytes()).decode()}
+        ).execute()
+    except Exception as email_err:
+        logger.error("Could not send Gmail watch failure email: %s", email_err)
 
 
 def _process_sent_message(service, state, msg_id):

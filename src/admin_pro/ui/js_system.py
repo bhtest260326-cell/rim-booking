@@ -21,7 +21,7 @@ async function loadSystemHealth() {
       if (!el) return;
       const color = (status === 'ok' || status === 'configured') ? 'var(--ap-green)'
                   : (status === 'unconfigured') ? 'var(--ap-amber)' : 'var(--ap-red)';
-      el.innerHTML = `<span style="color:${color};font-weight:600">${status || '—'}</span>${detail ? '<br><small style="color:var(--ap-text-muted)">' + detail + '</small>' : ''}`;
+      el.innerHTML = `<span style="color:${color};font-weight:600">${escapeHtml(status || '—')}</span>${detail ? '<br><small style="color:var(--ap-text-muted)">' + escapeHtml(detail) + '</small>' : ''}`;
     }
 
     setStatus('health-gmail-status',    h.gmail?.status,     h.gmail?.last_poll ? 'Last poll: ' + relativeTime(h.gmail.last_poll) : null);

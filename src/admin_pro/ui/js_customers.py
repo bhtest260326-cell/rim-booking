@@ -160,6 +160,15 @@ async function openCustomerDetail(emailB64) {
       ? '<div class="ap-card" style="border-color:var(--ap-amber);padding:10px;font-size:13px;margin-bottom:16px">&#9888; Maintenance reminder due</div>'
       : '';
 
+    const gdprFooter = `
+      <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--ap-border)">
+        <div style="font-size:0.75rem;font-weight:700;color:var(--ap-text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">GDPR / Privacy</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="gdprExport('${emailB64}')">Export My Data</button>
+          <button class="ap-btn ap-btn-ghost ap-btn-xs ap-text-danger" onclick="gdprPurge('${emailB64}', '${escapeHtml(email)}')">Anonymise (Right to Erasure)</button>
+        </div>
+      </div>`;
+
     const bodyHtml = `
       <div class="ap-customer-info" style="margin-bottom:16px">${infoRows}</div>
       ${maintenanceHtml}
@@ -170,6 +179,7 @@ async function openCustomerDetail(emailB64) {
           <tbody>${historyRows}</tbody>
         </table>
       </div>
+      ${gdprFooter}
     `;
 
     showModal(name, bodyHtml, '');
@@ -182,5 +192,38 @@ async function openCustomerDetail(emailB64) {
     showModal('Error', '<p class="ap-text-danger">Failed to load customer: ' + escapeHtml(e.message) + '</p>', '');
   }
 }
+// ─── GDPR ────────────────────────────────────────────────────────────────────
+
+async function gdprExport(emailB64) {
+  try {
+    const data = await apiFetch(`/v2/api/gdpr/export/${encodeURIComponent(emailB64)}`);
+    if (!data.ok) throw new Error(data.error || 'Export failed');
+    const json = JSON.stringify(data.data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gdpr-export-${emailB64.substring(0, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('GDPR export downloaded', 'success');
+  } catch (e) {
+    showToast('Export failed: ' + e.message, 'error');
+  }
+}
+
+async function gdprPurge(emailB64, email) {
+  if (!confirm(`Anonymise ALL personal data for ${email}? This cannot be undone.`)) return;
+  try {
+    const data = await apiFetch(`/v2/api/gdpr/purge/${encodeURIComponent(emailB64)}`, { method: 'POST' });
+    if (!data.ok) throw new Error(data.error || 'Purge failed');
+    showToast(`${data.records_anonymised} record(s) anonymised`, 'success');
+    closeModal();
+    await loadCustomers();
+  } catch (e) {
+    showToast('Purge failed: ' + e.message, 'error');
+  }
+}
+
 // ─── End of Customers Section ─────────────────────────────────────────────────
 """

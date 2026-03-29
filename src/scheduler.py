@@ -49,6 +49,8 @@ _TASK_INTERVALS = {
     'send_morning_email':           300,   # every 5 min
     'run_db_cleanup':               604800, # weekly (7 days)
     'check_waitlist_opportunities': 3600,  # every hour
+    'drain_message_queue':          60,    # every minute (Upgrade 5)
+    'run_daily_health_check':       300,   # every 5 min (idempotent via date key, Upgrade 10)
 }
 
 _KNOWN_TASKS = frozenset(_TASK_INTERVALS.keys())
@@ -166,6 +168,24 @@ def run_scheduled_tasks():
         except Exception as e:
             logger.error(f"check_waitlist_opportunities error: {e}", exc_info=True)
         _mark_ran('check_waitlist_opportunities')
+
+    if _should_run('drain_message_queue'):
+        try:
+            from message_queue import drain_queue
+            sent = drain_queue()
+            if sent:
+                logger.info("Message queue: %d message(s) sent", sent)
+        except Exception as e:
+            logger.error(f"drain_message_queue error: {e}", exc_info=True)
+        _mark_ran('drain_message_queue')
+
+    if _should_run('run_daily_health_check'):
+        try:
+            from health_monitor import run_daily_health_check
+            run_daily_health_check()
+        except Exception as e:
+            logger.error(f"run_daily_health_check error: {e}", exc_info=True)
+        _mark_ran('run_daily_health_check')
 
 
 def _alert_owner_overrun(date_str, overrun_jobs):

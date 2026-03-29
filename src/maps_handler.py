@@ -89,9 +89,9 @@ def _ceil_15(dt):
     return (dt + timedelta(minutes=add_minutes)).replace(second=0, microsecond=0)
 
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
-BUSINESS_ADDRESS = '76 Albert St, Osborne Park WA 6017'
-BUSINESS_START_HOUR = 8    # 8:00 AM — depart Osborne Park, first job no earlier than this
-BUSINESS_END_HOUR = 17     # 5:00 PM — all jobs must END by this time
+BUSINESS_ADDRESS = os.environ.get('BUSINESS_ADDRESS', '76 Albert St, Osborne Park WA 6017')
+BUSINESS_START_HOUR = int(os.environ.get('WORK_START_HOUR', '8'))   # default 8:00 AM
+BUSINESS_END_HOUR   = int(os.environ.get('WORK_END_HOUR',   '17'))  # default 5:00 PM
 TRAVEL_BUFFER_MINUTES = 10  # padding added on top of Maps estimate
 
 # Job duration table (minutes) keyed by number of rims

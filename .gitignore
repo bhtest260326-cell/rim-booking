@@ -1,0 +1,64 @@
+# === SECRETS & CREDENTIALS ===
+.env
+.env.*
+.env.local
+.env.production
+secrets.json
+credentials.json
+service_account.json
+google_credentials.json
+dashboard_config.json
+*.pem
+*.key
+*.p12
+
+# === DATABASE & DATA ===
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# === PYTHON ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+venv/
+.venv/
+env/
+ENV/
+.python-version
+
+# === IDE & SYSTEM ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === LOGS ===
+*.log
+logs/
+
+# === COVERAGE & TESTING ===
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# === RAILWAY ===
+.railway/
+
+# === CLAUDE ===
+.claude/settings.local.json

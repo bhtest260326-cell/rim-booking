@@ -1,6 +1,9 @@
+import re
 import json
+import uuid
 import base64
 import logging
+from datetime import datetime, timezone
 from flask import jsonify, request
 from state_manager import _get_conn
 
@@ -75,6 +78,8 @@ def register(bp, require_auth):
         q = request.args.get("q", "").strip()
         if not q:
             return jsonify({"results": []})
+        if len(q) > 100:
+            q = q[:100]  # Cap query length to prevent expensive LIKE scans
 
         try:
             with _get_conn() as conn:
@@ -159,11 +164,17 @@ def register(bp, require_auth):
     @require_auth
     def customer_profile(email_b64):
         try:
+            # Validate identifier length before decoding
+            if len(email_b64) > 200:
+                return jsonify({"error": "Invalid identifier"}), 400
             # Decode base64url-encoded email
             padding = 4 - len(email_b64) % 4
             if padding != 4:
                 email_b64 += "=" * padding
             email = base64.urlsafe_b64decode(email_b64).decode("utf-8")
+            # Basic email format validation
+            if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+                return jsonify({"error": "Invalid identifier"}), 400
         except Exception:
             return jsonify({"error": "Invalid email encoding"}), 400
 
@@ -248,6 +259,108 @@ def register(bp, require_auth):
         except Exception:
             logger.exception("Error fetching customer profile for %s", email)
             return jsonify({"error": "Internal server error"}), 500
+
+
+    # ------------------------------------------------------------------
+    # GET /api/gdpr/export/<email_b64> — Export all data for a customer
+    # ------------------------------------------------------------------
+    @bp.route("/api/gdpr/export/<email_b64>", methods=["GET"])
+    @require_auth
+    def gdpr_export(email_b64):
+        """Export all data held for a customer (GDPR right of access)."""
+        try:
+            if len(email_b64) > 200:
+                return jsonify({"ok": False, "error": "Invalid identifier"}), 400
+            padding = 4 - len(email_b64) % 4
+            if padding != 4:
+                email_b64 += "=" * padding
+            email = base64.urlsafe_b64decode(email_b64).decode("utf-8")
+            if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+                return jsonify({"ok": False, "error": "Invalid email"}), 400
+        except Exception:
+            return jsonify({"ok": False, "error": "Invalid identifier"}), 400
+
+        try:
+            with _get_conn() as conn:
+                bookings = conn.execute(
+                    "SELECT id, status, booking_data, created_at, confirmed_at FROM bookings WHERE customer_email=?",
+                    (email,)
+                ).fetchall()
+                clarifications = conn.execute(
+                    "SELECT id, missing_fields, attempt_count, created_at FROM clarifications WHERE customer_email=?",
+                    (email,)
+                ).fetchall()
+                events = conn.execute(
+                    """SELECT be.booking_id, be.event_type, be.actor, be.created_at
+                       FROM booking_events be
+                       JOIN bookings b ON be.booking_id = b.id
+                       WHERE b.customer_email=?
+                       ORDER BY be.created_at DESC""",
+                    (email,)
+                ).fetchall()
+
+            result = {
+                "email": email,
+                "exported_at": datetime.now(timezone.utc).isoformat(),
+                "bookings": [dict(b) for b in bookings],
+                "clarifications": [dict(c) for c in clarifications],
+                "booking_events": [dict(e) for e in events],
+            }
+            return jsonify({"ok": True, "data": result})
+        except Exception:
+            logger.exception("gdpr_export failed for %s", email_b64)
+            return jsonify({"ok": False, "error": "Internal server error"}), 500
+
+    # ------------------------------------------------------------------
+    # POST /api/gdpr/purge/<email_b64> — Anonymise all PII for a customer
+    # ------------------------------------------------------------------
+    @bp.route("/api/gdpr/purge/<email_b64>", methods=["POST"])
+    @require_auth
+    def gdpr_purge(email_b64):
+        """Anonymise all PII for a customer (GDPR right to erasure)."""
+        try:
+            if len(email_b64) > 200:
+                return jsonify({"ok": False, "error": "Invalid identifier"}), 400
+            padding = 4 - len(email_b64) % 4
+            if padding != 4:
+                email_b64 += "=" * padding
+            email = base64.urlsafe_b64decode(email_b64).decode("utf-8")
+            if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+                return jsonify({"ok": False, "error": "Invalid email"}), 400
+        except Exception:
+            return jsonify({"ok": False, "error": "Invalid identifier"}), 400
+
+        try:
+            anon_marker = "[GDPR_PURGED]"
+            anon_email = f"purged_{uuid.uuid4().hex[:8]}@gdpr.deleted"
+
+            with _get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT id, booking_data FROM bookings WHERE customer_email=?", (email,)
+                ).fetchall()
+                for row in rows:
+                    try:
+                        bd = json.loads(row["booking_data"]) if row["booking_data"] else {}
+                    except Exception:
+                        bd = {}
+                    for field in ("customer_name", "customer_phone", "address", "customer_email"):
+                        if field in bd:
+                            bd[field] = anon_marker
+                    conn.execute(
+                        "UPDATE bookings SET customer_email=?, booking_data=? WHERE id=?",
+                        (anon_email, json.dumps(bd), row["id"])
+                    )
+                conn.execute(
+                    "UPDATE clarifications SET customer_email=?, booking_data=? WHERE customer_email=?",
+                    (anon_email, json.dumps({"purged": True}), email)
+                )
+                purged_count = len(rows)
+
+            logger.info("GDPR purge completed for %s — %d records anonymised", email, purged_count)
+            return jsonify({"ok": True, "records_anonymised": purged_count})
+        except Exception:
+            logger.exception("gdpr_purge failed for %s", email_b64)
+            return jsonify({"ok": False, "error": "Internal server error"}), 500
 
 
 from admin_pro import admin_pro_bp, require_auth  # noqa: E402

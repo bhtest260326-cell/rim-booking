@@ -127,6 +127,21 @@ def _ensure_schema(conn):
             notified       INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_waitlist_date ON waitlist(requested_date, notified);
+
+        CREATE TABLE IF NOT EXISTS message_queue (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel     TEXT NOT NULL,
+            recipient   TEXT NOT NULL,
+            subject     TEXT,
+            body        TEXT NOT NULL,
+            booking_id  TEXT,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            attempts    INTEGER NOT NULL DEFAULT 0,
+            last_error  TEXT,
+            created_at  TEXT NOT NULL,
+            sent_at     TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_msgqueue_status ON message_queue(status, created_at);
     """)
     conn.commit()
 
@@ -959,3 +974,102 @@ class StateManager:
         d['booking_data'] = json.loads(d.get('booking_data') or '{}')
         d['reminders_sent'] = json.loads(d.get('reminders_sent') or '[]')
         return d
+
+    # ------------------------------------------------------------------
+    # Message Queue (Upgrade 5)
+    # ------------------------------------------------------------------
+
+    def enqueue_message(self, channel: str, recipient: str, body: str,
+                        subject: str = None, booking_id: str = None) -> int:
+        """Add a message to the outbound queue. Returns the new row id."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        with _get_conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO message_queue(channel, recipient, subject, body, booking_id, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, 'pending', ?)""",
+                (channel, recipient, subject, body, booking_id, now)
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def get_pending_messages(self, limit: int = 50) -> list:
+        """Return pending messages that have been attempted fewer than 3 times."""
+        with _get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM message_queue WHERE status='pending' AND attempts < 3 ORDER BY created_at LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_message_sent(self, msg_id: int) -> None:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        with _get_conn() as conn:
+            conn.execute(
+                "UPDATE message_queue SET status='sent', sent_at=? WHERE id=?",
+                (now, msg_id)
+            )
+            conn.commit()
+
+    def mark_message_failed(self, msg_id: int, error: str = None) -> None:
+        with _get_conn() as conn:
+            conn.execute(
+                "UPDATE message_queue SET attempts=attempts+1, last_error=?, status=CASE WHEN attempts+1>=3 THEN 'dead' ELSE 'pending' END WHERE id=?",
+                (error, msg_id)
+            )
+            conn.commit()
+
+    # ------------------------------------------------------------------
+    # GDPR helpers (Upgrade 9)
+    # ------------------------------------------------------------------
+
+    def get_customer_data(self, email: str) -> dict:
+        """Return all data held for a customer (GDPR right of access)."""
+        from datetime import datetime, timezone
+        import json as _json
+        with _get_conn() as conn:
+            bookings = [dict(r) for r in conn.execute(
+                "SELECT id, status, booking_data, created_at, confirmed_at FROM bookings WHERE customer_email=?",
+                (email,)
+            ).fetchall()]
+            clarifications = [dict(r) for r in conn.execute(
+                "SELECT id, missing_fields, attempt_count, created_at FROM clarifications WHERE customer_email=?",
+                (email,)
+            ).fetchall()]
+        return {
+            'email': email,
+            'exported_at': datetime.now(timezone.utc).isoformat(),
+            'bookings': bookings,
+            'clarifications': clarifications,
+        }
+
+    def anonymise_old_bookings(self, before_date: str) -> int:
+        """Anonymise PII for bookings completed before *before_date* (YYYY-MM-DD).
+
+        Returns the number of records anonymised.
+        """
+        import uuid as _uuid, json as _json
+        anon_marker = '[GDPR_PURGED]'
+        with _get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, booking_data FROM bookings WHERE status='confirmed' AND (confirmed_at < ? OR created_at < ?)",
+                (before_date, before_date)
+            ).fetchall()
+            count = 0
+            for row in rows:
+                try:
+                    bd = _json.loads(row['booking_data']) if row['booking_data'] else {}
+                except Exception:
+                    bd = {}
+                for field in ('customer_name', 'customer_phone', 'address', 'customer_email'):
+                    if field in bd:
+                        bd[field] = anon_marker
+                anon_email = f"purged_{_uuid.uuid4().hex[:8]}@gdpr.deleted"
+                conn.execute(
+                    "UPDATE bookings SET customer_email=?, booking_data=? WHERE id=?",
+                    (anon_email, _json.dumps(bd), row['id'])
+                )
+                count += 1
+            conn.commit()
+        return count

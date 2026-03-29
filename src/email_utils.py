@@ -24,10 +24,17 @@ logger = logging.getLogger(__name__)
 # Reschedule token secret — must be set in env vars for production security
 # ---------------------------------------------------------------------------
 RESCHEDULE_SECRET = os.environ.get('RESCHEDULE_SECRET', '')
+_on_railway = bool(os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_SERVICE_NAME'))
 if not RESCHEDULE_SECRET:
-    import warnings
-    warnings.warn('RESCHEDULE_SECRET not set — reschedule tokens are insecure!', stacklevel=2)
-    RESCHEDULE_SECRET = 'insecure-fallback-' + secrets.token_hex(8)  # random per-process at least
+    if _on_railway:
+        raise RuntimeError(
+            "RESCHEDULE_SECRET environment variable must be set in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    else:
+        import warnings
+        warnings.warn('RESCHEDULE_SECRET not set — using per-process random (tokens invalid across restarts)', stacklevel=2)
+        RESCHEDULE_SECRET = secrets.token_hex(32)
 
 # Public base URL of the Railway deployment — set APP_BASE_URL in Railway env vars
 _APP_BASE_URL = os.environ.get('APP_BASE_URL', '').rstrip('/')

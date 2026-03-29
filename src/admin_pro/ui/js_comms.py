@@ -9,6 +9,26 @@ JS_COMMS = """
 //   GET /v2/api/comms/sms/log      → {logs:[...]}
 // ─────────────────────────────────────────────────────────────────────────────
 
+const COMMS_STATE = { clarifications: [] };
+
+// Delegated click handler for all comms data-action buttons (avoids JSON.stringify in onclick)
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  if (action === 'gmail-preview') {
+    viewGmailSnippet(btn.dataset.subject || '', btn.dataset.snippet || '');
+  } else if (action === 'dlq-dismiss') {
+    dismissDlqEntry(btn.dataset.msgId || '', btn);
+  } else if (action === 'clar-detail') {
+    const idx = parseInt(btn.dataset.idx, 10);
+    const c = COMMS_STATE.clarifications[idx];
+    if (c) showClarificationDetail(c);
+  } else if (action === 'waitlist-notify') {
+    notifyWaitlistCustomer(parseInt(btn.dataset.id, 10), btn);
+  }
+});
+
 // ─── Tab Switching ────────────────────────────────────────────────────────────
 
 function switchCommsTab(tab) {
@@ -59,7 +79,7 @@ async function loadGmailQueue() {
         <td class="ap-text-muted" style="white-space:nowrap">${escapeHtml(m.date || '')}</td>
         <td><span class="ap-badge ap-badge-blue">${escapeHtml(m.classification || 'inbox')}</span></td>
         <td>
-          <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="viewGmailSnippet(this, ${JSON.stringify(escapeHtml(m.snippet || ''))}, ${JSON.stringify(escapeHtml(m.subject || ''))})">Preview</button>
+          <button class="ap-btn ap-btn-ghost ap-btn-xs" data-action="gmail-preview" data-subject="${escapeHtml(m.subject || '')}" data-snippet="${escapeHtml(m.snippet || '')}">Preview</button>
         </td>
       </tr>
     `).join('');
@@ -68,8 +88,8 @@ async function loadGmailQueue() {
   }
 }
 
-function viewGmailSnippet(btn, snippet, subject) {
-  showModal(subject || 'Gmail Message', `
+function viewGmailSnippet(subject, snippet) {
+  showModal(escapeHtml(subject) || 'Gmail Message', `
     <div class="ap-card" style="padding:16px;font-size:14px;line-height:1.6">${escapeHtml(snippet)}</div>
   `);
 }
@@ -103,7 +123,7 @@ async function loadDlq() {
         <td><span class="ap-badge ap-badge-red">${e.failure_count || 1}</span></td>
         <td>
           <button class="ap-btn ap-btn-ghost ap-btn-xs ap-text-danger"
-                  onclick="dismissDlqEntry(${JSON.stringify(e.gmail_msg_id || '')}, this)">Dismiss</button>
+                  data-action="dlq-dismiss" data-msg-id="${escapeHtml(e.gmail_msg_id || '')}">Dismiss</button>
         </td>
       </tr>
     `).join('');
@@ -144,7 +164,8 @@ async function loadClarifications() {
       tbody.innerHTML = '<tr><td colspan="5" class="ap-table-empty">No pending clarifications</td></tr>';
       return;
     }
-    tbody.innerHTML = items.map(c => {
+    COMMS_STATE.clarifications = items;
+    tbody.innerHTML = items.map((c, i) => {
       let missing = [];
       try { missing = JSON.parse(c.missing_fields || '[]'); } catch(_) {}
       return `
@@ -154,7 +175,7 @@ async function loadClarifications() {
           <td class="ap-text-muted">${relativeTime(c.created_at)}</td>
           <td><span class="ap-badge">${c.attempt_count || 0}</span></td>
           <td>
-            <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="showClarificationDetail(${JSON.stringify(c)})">View</button>
+            <button class="ap-btn ap-btn-ghost ap-btn-xs" data-action="clar-detail" data-idx="${i}">View</button>
           </td>
         </tr>
       `;
@@ -207,7 +228,7 @@ async function loadWaitlist() {
         <td class="ap-text-muted">${relativeTime(w.created_at)}</td>
         <td>
           ${!w.notified
-            ? `<button class="ap-btn ap-btn-primary ap-btn-xs" onclick="notifyWaitlistCustomer(${w.id}, this)">Notify</button>`
+            ? `<button class="ap-btn ap-btn-primary ap-btn-xs" data-action="waitlist-notify" data-id="${w.id}">Notify</button>`
             : '<span class="ap-badge ap-badge-green">Notified</span>'}
         </td>
       </tr>

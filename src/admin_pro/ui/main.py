@@ -1,5 +1,6 @@
 """admin_pro/ui/main.py — Assembles and serves the admin pro SPA."""
 import logging
+import secrets
 logger = logging.getLogger(__name__)
 
 def _build_html():
@@ -21,6 +22,15 @@ def _build_html():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Wheel Doctor — Control Pro</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#C41230">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<script>
+if ('serviceWorker' in navigator) {{
+  navigator.serviceWorker.register('/static/sw.js').catch(function(err) {{ console.warn('SW:', err); }});
+}}
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 {CSS}
@@ -66,7 +76,7 @@ def register(bp, require_auth):
                 logger.info("Admin Pro SPA built and cached")
             except Exception as e:
                 logger.error(f"SPA build failed: {e}", exc_info=True)
-                return f"<h1>Build Error</h1><pre>{e}</pre>", 500
+                return "<h1>Internal Error</h1><pre>An error occurred. Check server logs.</pre>", 500
 
         html = _CACHED_HTML
 
@@ -74,19 +84,41 @@ def register(bp, require_auth):
         # browser are automatically authenticated (cookie is sent same-origin).
         from admin_pro import _create_session
         sid = _create_session()
+        csrf_token = secrets.token_hex(32)
 
         resp = Response(html, mimetype='text/html')
         # Prevent browser/CDN caching so every deploy serves fresh HTML+JS
         resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         resp.headers['Pragma'] = 'no-cache'
-        # Secure flag only on Railway (HTTPS); omit for local HTTP dev
+        # Security headers
+        resp.headers['X-Frame-Options'] = 'DENY'
+        resp.headers['X-Content-Type-Options'] = 'nosniff'
+        resp.headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'"
+        )
         import os as _os
         on_railway = bool(_os.environ.get('RAILWAY_ENVIRONMENT') or
                           _os.environ.get('RAILWAY_SERVICE_NAME'))
+        if on_railway:
+            resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
         resp.set_cookie(
             'ap_session', sid,
-            max_age=86400,   # 24 hours
+            max_age=28800,   # 8 hours
             httponly=True,
+            samesite='Strict',
+            secure=on_railway,
+        )
+        # CSRF token — JS-readable so fetch() can send it as X-CSRF-Token header
+        resp.set_cookie(
+            'ap_csrf', csrf_token,
+            max_age=28800,
+            httponly=False,
             samesite='Strict',
             secure=on_railway,
         )

@@ -13,6 +13,28 @@ from state_manager import StateManager, _get_conn
 
 logger = logging.getLogger(__name__)
 
+# Allowlist of valid booking data field names
+_ALLOWED_BOOKING_FIELDS = {
+    'customer_name', 'customer_email', 'customer_phone', 'vehicle_make',
+    'vehicle_model', 'vehicle_colour', 'service_type', 'num_rims',
+    'preferred_date', 'preferred_time', 'address', 'suburb', 'notes',
+    'confidence', 'address_notes', 'missing_fields', 'name', 'phone',
+    '_confirmation_pin',
+}
+
+
+def _validate_booking_data(data: dict) -> str | None:
+    """Validate booking data fields. Returns error message or None if valid."""
+    if not isinstance(data, dict):
+        return "booking_data must be an object"
+    invalid_keys = set(data.keys()) - _ALLOWED_BOOKING_FIELDS
+    if invalid_keys:
+        return f"Invalid fields: {sorted(invalid_keys)}"
+    for k, v in data.items():
+        if isinstance(v, str) and len(v) > 500:
+            return f"Field '{k}' exceeds maximum length of 500 characters"
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Customer notification helper
@@ -313,6 +335,9 @@ def register(bp, require_auth):
             # Allow caller to supply updated booking_data in the request body
             body = request.get_json(silent=True) or {}
             if body.get('booking_data'):
+                err = _validate_booking_data(body['booking_data'])
+                if err:
+                    return jsonify({'ok': False, 'error': err}), 400
                 booking_data.update(body['booking_data'])
 
             success = state.confirm_booking(booking_id, booking_data)
@@ -413,7 +438,10 @@ def register(bp, require_auth):
             except (ValueError, TypeError):
                 existing_data = {}
 
-            # Merge incoming fields into existing booking_data
+            # Validate and merge incoming fields
+            err = _validate_booking_data(body)
+            if err:
+                return jsonify({'ok': False, 'error': err}), 400
             merged = {**existing_data, **body}
 
             if status == 'awaiting_owner':

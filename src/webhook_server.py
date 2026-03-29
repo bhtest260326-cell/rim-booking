@@ -24,10 +24,15 @@ _PUBSUB_TOKEN = os.environ.get('PUBSUB_WEBHOOK_TOKEN', '')
 # Fix 5 — Hardcoded Claude model name: use env var with sensible default
 CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-sonnet-4-6')
 
-# Fix 2 — In-memory rate limiter for reschedule token endpoints (per IP, 10 req/min)
+# Rate limiter for reschedule/booking public endpoints (per IP, 10 req/min)
 _reschedule_rate_limit: dict = collections.defaultdict(list)
 _RATE_LIMIT_MAX = 10
 _RATE_LIMIT_WINDOW = 60  # seconds
+
+# Separate rate limiter for webhook endpoints (per IP, 60 req/min)
+_webhook_rate_limit: dict = collections.defaultdict(list)
+_WEBHOOK_RATE_MAX = 60
+_WEBHOOK_RATE_WINDOW = 60
 
 
 def _check_rate_limit(ip: str) -> bool:
@@ -45,8 +50,21 @@ def _check_rate_limit(ip: str) -> bool:
     return True
 
 
+def _check_webhook_rate_limit(ip: str) -> bool:
+    """Rate limit for public webhook endpoints (60 req/min per IP)."""
+    now = time.monotonic()
+    window_start = now - _WEBHOOK_RATE_WINDOW
+    timestamps = _webhook_rate_limit[ip]
+    timestamps[:] = [t for t in timestamps if t > window_start]
+    if len(timestamps) >= _WEBHOOK_RATE_MAX:
+        return False
+    timestamps.append(now)
+    return True
+
+
 def create_app():
     app = Flask(__name__)
+    app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max request size
 
     # Fix 1 — Log Pub/Sub verification mode at startup
     _pubsub_audience = os.environ.get('PUBSUB_AUDIENCE', '')
@@ -66,7 +84,7 @@ def create_app():
     # ------------------------------------------------------------------
 
     # Fix 3 — Whitelist of allowed extensions for static file serving
-    _ALLOWED_STATIC_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.css', '.js', '.ico', '.svg', '.webp'}
+    _ALLOWED_STATIC_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.css', '.js', '.ico', '.svg', '.webp', '.json'}
 
     @app.route('/static/<path:filename>')
     def static_files(filename):
@@ -86,9 +104,14 @@ def create_app():
 
     @app.route('/webhook/gmail', methods=['POST'])
     def gmail_webhook():
-        # Optional token check — set PUBSUB_WEBHOOK_TOKEN in Railway to enable
+        # Webhook rate limit
+        client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr or 'unknown'
+        if not _check_webhook_rate_limit(client_ip):
+            return jsonify({'error': 'Rate limit exceeded'}), 429
+
+        # Optional token check — accepts query param OR X-Webhook-Token header
         if _PUBSUB_TOKEN:
-            token = request.args.get('token', '')
+            token = request.args.get('token', '') or request.headers.get('X-Webhook-Token', '')
             if not hmac.compare_digest(token.encode(), _PUBSUB_TOKEN.encode()):
                 logger.warning("Gmail webhook: invalid or missing token")
                 return 'Unauthorized', 403
@@ -155,6 +178,11 @@ def create_app():
 
     @app.route('/webhook/twilio/sms', methods=['POST'])
     def twilio_sms_webhook():
+        # Rate limit on webhook endpoint
+        twilio_ip = request.remote_addr or 'unknown'
+        if not _check_webhook_rate_limit(twilio_ip):
+            return jsonify({'error': 'Rate limit exceeded'}), 429
+
         # Validate Twilio signature to reject spoofed requests
         auth_token = os.environ.get('TWILIO_AUTH_TOKEN', '')
         if auth_token and not os.environ.get('TWILIO_SKIP_VALIDATION'):
@@ -498,6 +526,289 @@ def create_app():
         )
 
         return build_email_html(page_content)
+
+    # ------------------------------------------------------------------
+    # Customer self-service cancellation (Upgrade 2)
+    # ------------------------------------------------------------------
+
+    @app.route('/reschedule/<token>/cancel', methods=['GET'])
+    def reschedule_cancel(token):
+        """Customer self-service booking cancellation."""
+        client_ip = request.remote_addr or '0.0.0.0'
+        if not _check_rate_limit(client_ip):
+            return "<h2 style='font-family:sans-serif;'>Too many requests.</h2>", 429
+
+        from email_utils import verify_reschedule_token
+        from state_manager import StateManager
+        from html import escape as _esc
+        import json as _json
+
+        booking_id = verify_reschedule_token(token)
+        if not booking_id:
+            return ("<h2 style='font-family:sans-serif;color:#C41230;'>Link expired or invalid.</h2>"
+                    "<p style='font-family:sans-serif;'>Please contact us directly to cancel.</p>"), 400
+
+        state = StateManager()
+        confirmed = state.get_confirmed_bookings()
+        booking = confirmed.get(booking_id)
+        if not booking:
+            return ("<h2 style='font-family:sans-serif;'>Booking not found.</h2>"
+                    "<p style='font-family:sans-serif;'>This booking may have already been cancelled.</p>"), 404
+
+        bd = booking.get('booking_data', {})
+        if isinstance(bd, str):
+            bd = _json.loads(bd)
+
+        try:
+            state.decline_booking(booking_id)
+            state.log_booking_event(booking_id, 'cancelled', actor='customer_self_service',
+                                    details={'method': 'reschedule_link'})
+        except Exception as e:
+            logger.warning("Cancel booking %s failed: %s", booking_id, e)
+            return "<h2 style='font-family:sans-serif;'>An error occurred. Please contact us to cancel.</h2>", 500
+
+        # Notify owner
+        try:
+            from twilio_handler import send_sms
+            from feature_flags import get_flag
+            owner_mobile = os.environ.get('OWNER_MOBILE', '')
+            if owner_mobile and get_flag('flag_auto_sms_owner'):
+                cust_name = bd.get('customer_name', 'Customer')
+                booked_date = bd.get('preferred_date', '')
+                send_sms(owner_mobile,
+                         f"CANCELLATION: {cust_name} cancelled booking {booking_id} for {booked_date}. - Wheel Doctor System")
+        except Exception as e:
+            logger.warning("Owner cancel SMS failed: %s", e)
+
+        cust_name = _esc((bd.get('customer_name') or 'there').split()[0])
+        booked_date = _esc(bd.get('preferred_date', ''))
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Booking Cancelled</title>
+<style>
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#1e293b;}}
+  .wrap{{max-width:480px;margin:64px auto;padding:16px;}}
+  .card{{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);padding:32px;text-align:center;}}
+  h1{{color:#64748b;font-size:22px;margin-bottom:16px;}}p{{color:#475569;line-height:1.6;}}
+</style>
+</head>
+<body><div class="wrap"><div class="card">
+  <h1>Booking Cancelled</h1>
+  <p>Hi {cust_name}, your booking{' for <strong>' + booked_date + '</strong>' if booked_date else ''} has been cancelled.</p>
+  <p style="margin-top:12px;">To rebook, please reply to your original confirmation email.</p>
+  <p style="margin-top:24px;color:#94a3b8;font-size:13px;">— Wheel Doctor Team</p>
+</div></div></body></html>"""
+
+    # ------------------------------------------------------------------
+    # Customer-facing booking form (Upgrade 7)
+    # ------------------------------------------------------------------
+
+    @app.route('/book', methods=['GET'])
+    def booking_form():
+        """Customer-facing booking form — structured input, no AI parsing needed."""
+        return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book a Wheel Repair — Wheel Doctor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#1e293b;}
+.wrap{max-width:560px;margin:32px auto;padding:16px;}
+.card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);padding:28px;}
+h1{color:#C41230;font-size:24px;margin-bottom:4px;}.subtitle{color:#64748b;font-size:14px;margin-bottom:24px;}
+label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:4px;}
+input,select,textarea{width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+  color:#1e293b;background:#fff;outline:none;transition:border .15s;}
+input:focus,select:focus,textarea:focus{border-color:#C41230;}
+.row{margin-bottom:16px;}.row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+.btn{display:block;width:100%;padding:13px;background:#C41230;color:#fff;border:none;border-radius:8px;
+  font-size:16px;font-weight:600;cursor:pointer;margin-top:24px;}
+.btn:hover{background:#a31025;}
+.section-label{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;
+  letter-spacing:.05em;margin:20px 0 12px;border-bottom:1px solid #f1f5f9;padding-bottom:6px;}
+.success{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:20px;margin-top:16px;display:none;}
+.error-msg{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-top:12px;
+  color:#991b1b;font-size:14px;display:none;}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+<h1>Book a Wheel Repair</h1>
+<p class="subtitle">Mobile service — we come to you across Perth metro</p>
+<div id="form-error" class="error-msg"></div>
+<div id="form-success" class="success">
+  <strong style="color:#16a34a;">Booking received!</strong>
+  <p style="margin-top:8px;color:#166534;font-size:14px;">We'll be in touch shortly to confirm your appointment.</p>
+</div>
+<form id="booking-form" onsubmit="submitBooking(event)">
+<p class="section-label">Your Details</p>
+<div class="row"><label>Full Name *</label><input type="text" name="customer_name" required maxlength="100"></div>
+<div class="row-2">
+  <div><label>Email *</label><input type="email" name="customer_email" required maxlength="200"></div>
+  <div><label>Mobile</label><input type="tel" name="customer_phone" maxlength="20" placeholder="04XX XXX XXX"></div>
+</div>
+<p class="section-label">Vehicle</p>
+<div class="row-2">
+  <div><label>Make *</label><input type="text" name="vehicle_make" required maxlength="50" placeholder="e.g. Toyota"></div>
+  <div><label>Model *</label><input type="text" name="vehicle_model" required maxlength="50" placeholder="e.g. Camry"></div>
+</div>
+<div class="row-2">
+  <div><label>Colour</label><input type="text" name="vehicle_colour" maxlength="30"></div>
+  <div><label>Rims to repair *</label>
+    <select name="num_rims" required>
+      <option value="">Select...</option>
+      <option value="1">1 rim</option><option value="2">2 rims</option>
+      <option value="3">3 rims</option><option value="4">4 rims</option>
+    </select>
+  </div>
+</div>
+<div class="row"><label>Service Type</label>
+  <select name="service_type">
+    <option value="Rim Repair">Rim Repair</option>
+    <option value="Rim Respray">Rim Respray</option>
+    <option value="Rim Repair &amp; Respray">Rim Repair &amp; Respray</option>
+  </select>
+</div>
+<p class="section-label">Location &amp; Timing</p>
+<div class="row"><label>Street Address *</label><input type="text" name="address" required maxlength="200" placeholder="e.g. 12 Smith St"></div>
+<div class="row"><label>Suburb *</label><input type="text" name="suburb" required maxlength="100"></div>
+<div class="row-2">
+  <div><label>Preferred Date</label><input type="date" name="preferred_date"></div>
+  <div><label>Preferred Time</label>
+    <select name="preferred_time">
+      <option value="">Flexible</option>
+      <option value="08:00">8:00 AM</option><option value="09:00">9:00 AM</option>
+      <option value="10:00">10:00 AM</option><option value="11:00">11:00 AM</option>
+      <option value="12:00">12:00 PM</option><option value="13:00">1:00 PM</option>
+      <option value="14:00">2:00 PM</option>
+    </select>
+  </div>
+</div>
+<div class="row"><label>Notes</label><textarea name="notes" rows="3" maxlength="500" placeholder="Details about the damage..."></textarea></div>
+<button type="submit" class="btn" id="submit-btn">Request Booking</button>
+<p style="font-size:12px;color:#94a3b8;margin-top:12px;text-align:center;">We'll confirm within a few hours via email or SMS.</p>
+</form>
+</div></div>
+<script>
+async function submitBooking(e) {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const errDiv = document.getElementById('form-error');
+  const successDiv = document.getElementById('form-success');
+  btn.disabled = true; btn.textContent = 'Sending...';
+  errDiv.style.display = 'none';
+  const data = {};
+  new FormData(e.target).forEach((v, k) => { data[k] = v; });
+  try {
+    const resp = await fetch('/book/submit', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+    const result = await resp.json();
+    if (result.ok) { e.target.style.display='none'; successDiv.style.display='block'; }
+    else { errDiv.textContent = result.error || 'An error occurred.'; errDiv.style.display='block'; btn.disabled=false; btn.textContent='Request Booking'; }
+  } catch(err) { errDiv.textContent='Network error. Please try again.'; errDiv.style.display='block'; btn.disabled=false; btn.textContent='Request Booking'; }
+}
+</script>
+</body></html>"""
+
+    @app.route('/book/submit', methods=['POST'])
+    def booking_form_submit():
+        """Process the customer booking form submission."""
+        import re as _re
+        client_ip = request.remote_addr or '0.0.0.0'
+        if not _check_rate_limit(client_ip):
+            return jsonify({'ok': False, 'error': 'Too many requests. Please wait and try again.'}), 429
+
+        try:
+            data = request.get_json(silent=True) or {}
+        except Exception:
+            return jsonify({'ok': False, 'error': 'Invalid request'}), 400
+
+        # Validate required fields
+        required = ['customer_name', 'customer_email', 'vehicle_make', 'vehicle_model', 'num_rims', 'address', 'suburb']
+        for field in required:
+            if not str(data.get(field, '') or '').strip():
+                return jsonify({'ok': False, 'error': f'Please fill in: {field.replace("_", " ")}'}), 400
+
+        # Validate and sanitise
+        FIELD_MAX = {'customer_name': 100, 'customer_email': 200, 'customer_phone': 20,
+                     'vehicle_make': 50, 'vehicle_model': 50, 'vehicle_colour': 30,
+                     'service_type': 50, 'address': 200, 'suburb': 100,
+                     'preferred_date': 10, 'preferred_time': 5, 'notes': 500}
+        sanitized = {}
+        for field, max_len in FIELD_MAX.items():
+            val = str(data.get(field, '') or '').strip()
+            if len(val) > max_len:
+                return jsonify({'ok': False, 'error': f'Field {field} is too long'}), 400
+            sanitized[field] = val
+
+        num_rims_raw = str(data.get('num_rims', '') or '').strip()
+        if num_rims_raw not in ('1', '2', '3', '4'):
+            return jsonify({'ok': False, 'error': 'Invalid number of rims'}), 400
+
+        if not _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', sanitized['customer_email']):
+            return jsonify({'ok': False, 'error': 'Please enter a valid email address'}), 400
+
+        if sanitized['preferred_date'] and not _re.match(r'^\d{4}-\d{2}-\d{2}$', sanitized['preferred_date']):
+            return jsonify({'ok': False, 'error': 'Invalid date format'}), 400
+
+        booking_data = {
+            **sanitized,
+            'num_rims': int(num_rims_raw),
+            'service_type': sanitized['service_type'] or 'Rim Repair',
+            'preferred_date': sanitized['preferred_date'] or None,
+            'preferred_time': sanitized['preferred_time'] or None,
+            'confidence': 'high',
+            'missing_fields': [],
+            'source': 'web_form',
+        }
+
+        try:
+            from state_manager import StateManager
+            from twilio_handler import send_sms
+
+            state = StateManager()
+            booking_id = state.save_pending_booking(
+                booking_data=booking_data,
+                customer_email=sanitized['customer_email'],
+                source='web_form'
+            )
+
+            # Try to find a slot
+            try:
+                from maps_handler import find_next_available_slot, get_job_duration_minutes
+                duration = get_job_duration_minutes(booking_data)
+                slot = find_next_available_slot(
+                    job_duration_minutes=duration,
+                    preferred_date=booking_data.get('preferred_date'),
+                    job_address=f"{sanitized['address']}, {sanitized['suburb']} WA"
+                )
+                if slot:
+                    booking_data['preferred_date'] = slot['date']
+                    booking_data['preferred_time'] = slot['time']
+                    state.update_pending_booking_data(booking_id, booking_data)
+            except Exception as e:
+                logger.warning("Web form: slot finding failed: %s", e)
+
+            # Notify owner via SMS
+            owner_mobile = os.environ.get('OWNER_MOBILE', '')
+            if owner_mobile:
+                try:
+                    msg = (f"NEW WEB BOOKING: {booking_data['customer_name']}, "
+                           f"{booking_data['num_rims']}x {booking_data['service_type']}, "
+                           f"{sanitized['suburb']}, {booking_data.get('preferred_date', 'TBD')}. "
+                           f"Reply YES or NO [ID:{booking_id}] - Wheel Doctor")
+                    send_sms(owner_mobile, msg[:160])
+                except Exception as e:
+                    logger.warning("Web form: owner SMS failed: %s", e)
+
+            logger.info("Web form booking created: %s", booking_id)
+            return jsonify({'ok': True, 'booking_id': booking_id})
+
+        except Exception:
+            logger.exception("Web form booking creation failed")
+            return jsonify({'ok': False, 'error': 'Failed to save booking. Please contact us directly.'}), 500
 
     # ------------------------------------------------------------------
     # Health check

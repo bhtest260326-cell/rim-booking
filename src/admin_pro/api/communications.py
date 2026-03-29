@@ -53,7 +53,7 @@ def register(bp, require_auth):
             return jsonify({"messages": messages, "error": None})
         except Exception:
             logger.exception("comms_gmail error detail")
-            return jsonify({"messages": [], "error": "Gmail unavailable"})
+            return jsonify({"messages": [], "error": "Gmail unavailable"}), 503
 
     # ------------------------------------------------------------------
     # GET /api/comms/dlq
