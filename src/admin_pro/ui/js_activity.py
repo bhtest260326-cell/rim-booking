@@ -83,6 +83,9 @@ function renderActivityControls() {
 // active state, and immediately reload the feed.
 function setActivityFilter(filter) {
   ACTIVITY_STATE.filter = filter;
+  // Sync the dropdown if it exists
+  const sel = document.getElementById('activity-type-filter');
+  if (sel) sel.value = filter;
   renderActivityControls();
   loadActivity();
 }

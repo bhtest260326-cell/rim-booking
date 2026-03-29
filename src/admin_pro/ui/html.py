@@ -740,23 +740,21 @@ HTML_SECTIONS = """
     <div class="ap-card-header">
       <span class="ap-card-title">Activity Feed</span>
       <div class="ap-activity-controls">
-        <select class="ap-input ap-input-sm" id="activity-type-filter" onchange="filterActivity(this.value)">
+        <select class="ap-input ap-input-sm" id="activity-type-filter" onchange="setActivityFilter(this.value)">
           <option value="all">All Events</option>
-          <option value="booking_created">Booking Created</option>
-          <option value="booking_confirmed">Booking Confirmed</option>
-          <option value="booking_cancelled">Booking Cancelled</option>
-          <option value="booking_rescheduled">Booking Rescheduled</option>
-          <option value="email_received">Email Received</option>
-          <option value="sms_sent">SMS Sent</option>
-          <option value="clarification_sent">Clarification Sent</option>
-          <option value="waitlist_added">Waitlist Added</option>
-          <option value="system_error">System Error</option>
+          <option value="created">Created</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="declined">Declined</option>
+          <option value="rescheduled">Rescheduled</option>
+          <option value="cancellation_requested">Cancellations</option>
+          <option value="note">Notes</option>
+          <option value="cancelled">Cancelled</option>
         </select>
         <label class="ap-toggle-label">
           <input type="checkbox" id="activity-autorefresh" onchange="toggleActivityAutoRefresh(this.checked)">
           <span>Auto-refresh</span>
         </label>
-        <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="loadActivityFeed()">↻ Refresh</button>
+        <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="loadActivity()">↻ Refresh</button>
       </div>
     </div>
 
