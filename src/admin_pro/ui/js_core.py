@@ -53,6 +53,12 @@ function showSection(name) {
     target.style.display = 'block';
   }
 
+  // Toggle full-width mode for sections that need it (e.g. calendar)
+  const content = document.querySelector('.ap-content');
+  if (content) {
+    content.classList.toggle('ap-content--fullwidth', name === 'calendar');
+  }
+
   // Update nav active state
   document.querySelectorAll('.ap-nav-item').forEach(el => {
     el.classList.remove('active');

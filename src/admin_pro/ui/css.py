@@ -713,6 +713,21 @@ body.ap-body {
   width: 100%;
 }
 
+/* Calendar section fills full available width and height */
+#section-calendar {
+  width: 100%;
+  max-width: none;
+  height: calc(100vh - var(--ap-topbar-height, 56px) - 48px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* When calendar (or other full-width section) is active, remove content cap */
+.ap-content.ap-content--fullwidth {
+  max-width: 100%;
+  padding: 16px;
+}
+
 /* --- Sections ---------------------------------------------- */
 .ap-section {
   display: none;
@@ -2198,7 +2213,7 @@ body.ap-body {
   grid-template-columns: 1fr 280px;
   gap: 16px;
   align-items: stretch;
-  height: 100%;
+  flex: 1;
   min-height: 0;
 }
 
@@ -2207,8 +2222,11 @@ body.ap-body {
   border: 1px solid var(--ap-border);
   border-radius: var(--ap-radius);
   box-shadow: var(--ap-shadow);
-  padding: 20px;
+  padding: 16px;
   min-width: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .ap-calendar-header {

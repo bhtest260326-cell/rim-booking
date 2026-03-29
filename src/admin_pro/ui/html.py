@@ -408,9 +408,9 @@ HTML_SECTIONS = """
 </section>
 
 <!-- ═══════════════════════════════════════════════ CALENDAR ══ -->
-<section class="ap-section" id="section-calendar" style="height:calc(100vh - var(--ap-topbar-height, 56px) - 32px);display:flex;flex-direction:column;">
-  <div class="ap-calendar-layout" style="flex:1;min-height:0;">
-    <div class="ap-calendar-main" style="overflow:auto;">
+<section class="ap-section" id="section-calendar">
+  <div class="ap-calendar-layout">
+    <div class="ap-calendar-main">
       <div id="ap-calendar-header"></div>
       <div id="ap-calendar-grid">
         <div class="ap-calendar-loading">Loading calendar…</div>
