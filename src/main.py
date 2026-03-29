@@ -39,6 +39,21 @@ def _configure_logging():
 
 logger = logging.getLogger(__name__)
 
+
+def _validate_env():
+    """On Railway, ensure critical security env vars are set."""
+    if not os.environ.get('RAILWAY_ENVIRONMENT'):
+        return
+    missing = []
+    for var in ('ADMIN_PASSWORD', 'RESCHEDULE_SECRET'):
+        if not os.environ.get(var):
+            missing.append(var)
+    if missing:
+        raise RuntimeError(
+            f"Missing required env var(s) on Railway: {', '.join(missing)}"
+        )
+
+
 PUBSUB_ENABLED = bool(os.environ.get('PUBSUB_TOPIC_NAME', ''))
 
 # Gmail watches expire after 7 days — renew every 6 to be safe
@@ -83,6 +98,7 @@ def _background_loop():
 
 def main():
     _configure_logging()
+    _validate_env()
     logger.info("Wheel Doctor Booking System starting...")
 
     if PUBSUB_ENABLED:

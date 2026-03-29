@@ -35,6 +35,8 @@ _admin_pass = os.environ.get('ADMIN_PASSWORD', '')
 _admin_user = os.environ.get('ADMIN_USERNAME', 'admin')
 
 if not _admin_pass:
+    if os.environ.get('RAILWAY_ENVIRONMENT'):
+        raise RuntimeError("ADMIN_PASSWORD must be set in production")
     logger.critical(
         "ADMIN_PASSWORD env var is not set — admin UI is running WITHOUT Basic Auth protection. "
         "Set ADMIN_PASSWORD in your environment to enable authentication."

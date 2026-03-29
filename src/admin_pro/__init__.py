@@ -10,6 +10,12 @@ from flask import Blueprint, jsonify, request, make_response
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Production safety check — refuse to start without auth credentials
+# ---------------------------------------------------------------------------
+if os.environ.get('RAILWAY_ENVIRONMENT') and not os.environ.get('ADMIN_PASSWORD'):
+    raise RuntimeError("ADMIN_PASSWORD must be set in production")
+
 admin_pro_bp = Blueprint('admin_pro', __name__, url_prefix='/v2')
 
 # In-memory session store: session_id -> expiry unix timestamp.
