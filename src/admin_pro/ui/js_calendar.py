@@ -288,6 +288,76 @@ function _calTimeToSlotIndex(hour, minute) {
   return (hour - CAL_HOUR_START) * 2 + Math.floor(minute / 30);
 }
 
+// ── Overlap layout (Google Calendar style) ──────────────────
+function _calComputeOverlapLayout(bookings) {
+  // For each booking compute start/end in pixels, then assign columns
+  var items = bookings.map(function(b) {
+    var bd = b.booking_data || {};
+    var timeStr = bd.preferred_time || '';
+    var parsed = _calParseTime(timeStr);
+    var hour = parsed ? parsed.hour : 9;
+    var minute = parsed ? parsed.minute : 0;
+    if (hour < CAL_HOUR_START) { hour = CAL_HOUR_START; minute = 0; }
+    if (hour >= CAL_HOUR_END) { hour = CAL_HOUR_END - 1; minute = 0; }
+    var slotIndex = _calTimeToSlotIndex(hour, minute);
+    var topPx = slotIndex * CAL_SLOT_HEIGHT + (minute % 30) / 30 * CAL_SLOT_HEIGHT;
+    var durationSlots = _calGetJobDurationSlots(bd);
+    var heightPx = durationSlots * CAL_SLOT_HEIGHT;
+    var maxTop = CAL_TOTAL_SLOTS * CAL_SLOT_HEIGHT - heightPx;
+    if (topPx > maxTop) topPx = maxTop;
+    return { booking: b, top: topPx, bottom: topPx + heightPx, col: 0, totalCols: 1 };
+  });
+
+  // Sort by start time, then by duration (longer first)
+  items.sort(function(a, b) { return a.top - b.top || (b.bottom - b.top) - (a.bottom - a.top); });
+
+  // Greedy column assignment
+  // columns[c] = end position of last event placed in column c
+  var columns = [];
+  items.forEach(function(item) {
+    var placed = false;
+    for (var c = 0; c < columns.length; c++) {
+      if (item.top >= columns[c]) {
+        item.col = c;
+        columns[c] = item.bottom;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      item.col = columns.length;
+      columns.push(item.bottom);
+    }
+  });
+
+  // Find overlapping groups and set totalCols for each group
+  // Two items overlap if their vertical ranges intersect
+  for (var i = 0; i < items.length; i++) {
+    // Find all items that transitively overlap with this one
+    var group = [i];
+    var maxCol = items[i].col;
+    var groupBottom = items[i].bottom;
+    for (var j = i + 1; j < items.length; j++) {
+      if (items[j].top < groupBottom) {
+        group.push(j);
+        if (items[j].col > maxCol) maxCol = items[j].col;
+        if (items[j].bottom > groupBottom) groupBottom = items[j].bottom;
+      }
+    }
+    var totalCols = maxCol + 1;
+    group.forEach(function(idx) {
+      if (totalCols > items[idx].totalCols) items[idx].totalCols = totalCols;
+    });
+  }
+
+  // Return map of bookingId -> { col, totalCols }
+  var layoutMap = {};
+  items.forEach(function(item) {
+    layoutMap[item.booking.id] = { col: item.col, totalCols: item.totalCols };
+  });
+  return layoutMap;
+}
+
 function _calSlotToTimeStr(slotIndex) {
   var totalMinutes = (CAL_HOUR_START * 60) + (slotIndex * 30);
   var h = Math.floor(totalMinutes / 60);
@@ -427,7 +497,7 @@ function renderCalendar() {
       }
     }
 
-    // Booking cards
+    // Booking cards with overlap layout
     var bookings = CAL_STATE.bookingsByDate[dateStr] || [];
     bookings.sort(function(a, b) {
       var tA = (a.booking_data && a.booking_data.preferred_time) || '';
@@ -435,8 +505,10 @@ function renderCalendar() {
       return tA.localeCompare(tB);
     });
 
+    var layoutMap = _calComputeOverlapLayout(bookings);
     bookings.forEach(function(b) {
-      html += _calRenderBookingCard(b, dateStr);
+      var layout = layoutMap[b.id] || { col: 0, totalCols: 1 };
+      html += _calRenderBookingCard(b, dateStr, layout);
     });
 
     html += '</div>'; // .cal-day-body
@@ -449,7 +521,8 @@ function renderCalendar() {
 }
 
 // ── Booking Card Renderer ────────────────────────────────────
-function _calRenderBookingCard(b, dateStr) {
+function _calRenderBookingCard(b, dateStr, layout) {
+  layout = layout || { col: 0, totalCols: 1 };
   var bd = b.booking_data || {};
   var timeStr = bd.preferred_time || '';
   var parsed = _calParseTime(timeStr);
@@ -468,6 +541,10 @@ function _calRenderBookingCard(b, dateStr) {
   var maxTop = CAL_TOTAL_SLOTS * CAL_SLOT_HEIGHT - heightPx;
   if (topPx > maxTop) topPx = maxTop;
 
+  // Overlap column positioning
+  var colWidth = 100 / layout.totalCols;
+  var leftPct = layout.col * colWidth;
+
   var isConfirmed = b.status === 'confirmed';
   var isPending = b.status === 'awaiting_owner';
   var colorClass = isConfirmed ? 'cal-card-confirmed' : 'cal-card-pending';
@@ -480,7 +557,7 @@ function _calRenderBookingCard(b, dateStr) {
 
   var html = '';
   html += '<div class="cal-booking-card ' + colorClass + (isChanged ? ' cal-card-changed' : '') + '" ';
-  html += 'style="top:' + topPx + 'px;height:' + heightPx + 'px" ';
+  html += 'style="top:' + topPx + 'px;height:' + heightPx + 'px;left:calc(' + leftPct + '% + 1px);width:calc(' + colWidth + '% - 2px)" ';
   html += 'draggable="true" ';
   html += 'data-booking-id="' + b.id + '" ';
   html += 'data-date="' + dateStr + '" ';
@@ -1026,7 +1103,7 @@ function _calGetStyles() {
   // Booking card
   '.cal-booking-card {' +
     'position: absolute;' +
-    'left: 2px; right: 2px;' +
+    'box-sizing: border-box;' +
     'border-radius: 4px;' +
     'padding: 3px 6px;' +
     'overflow: hidden;' +
