@@ -1,7 +1,11 @@
 import os
 import base64
 import logging
+import re
 from datetime import datetime
+from html import unescape
+from html.parser import HTMLParser
+
 from google_auth import get_gmail_service
 from googleapiclient.errors import HttpError
 from ai_parser import extract_booking_details, merge_booking_data, is_booking_request
@@ -13,6 +17,57 @@ from email.mime.text import MIMEText
 from feature_flags import get_flag
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# HTML-to-text conversion (stdlib only)
+# ---------------------------------------------------------------------------
+
+class _HTMLToTextParser(HTMLParser):
+    """Lightweight HTML-to-text converter that preserves basic structure."""
+
+    _BLOCK_END_TAGS = {'p', 'div', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+    _SKIP_TAGS = {'script', 'style'}
+
+    def __init__(self):
+        super().__init__()
+        self._pieces: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+        elif tag == 'br':
+            self._pieces.append('\n')
+        elif tag == 'li':
+            self._pieces.append('\n- ')
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in self._SKIP_TAGS:
+            self._skip_depth = max(0, self._skip_depth - 1)
+        elif tag in self._BLOCK_END_TAGS:
+            self._pieces.append('\n')
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            self._pieces.append(data)
+
+    def get_text(self) -> str:
+        return ''.join(self._pieces)
+
+
+def _html_to_text(html: str) -> str:
+    """Convert an HTML string to readable plain text."""
+    parser = _HTMLToTextParser()
+    parser.feed(unescape(html))
+    text = parser.get_text()
+    # Collapse runs of whitespace on each line, then collapse blank lines
+    lines = [' '.join(line.split()) for line in text.splitlines()]
+    text = '\n'.join(lines)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -113,14 +168,12 @@ def get_email_body(message):
                 if data:
                     return base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
     # Fallback: extract text from HTML parts if no text/plain found
-    import re as _re
     for part in payload.get('parts', []):
         if part.get('mimeType') == 'text/html':
             data = part.get('body', {}).get('data')
             if data:
                 html_body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                html_text = _re.sub(r'<[^>]+>', ' ', html_body)
-                html_text = _re.sub(r'\s+', ' ', html_text).strip()
+                html_text = _html_to_text(html_body)
                 if html_text:
                     return html_text
         for subpart in part.get('parts', []):
@@ -128,8 +181,7 @@ def get_email_body(message):
                 data = subpart.get('body', {}).get('data')
                 if data:
                     html_body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                    html_text = _re.sub(r'<[^>]+>', ' ', html_body)
-                    html_text = _re.sub(r'\s+', ' ', html_text).strip()
+                    html_text = _html_to_text(html_body)
                     if html_text:
                         return html_text
     return ""
@@ -1214,7 +1266,6 @@ def handle_clarification_reply(service, state, msg_id, thread_id, existing_pendi
         try:
             from ai_parser import is_availability_inquiry as _is_avail
             if _is_avail(subject, body):
-                import re
                 from datetime import date, timedelta
                 from maps_handler import get_week_availability, get_job_duration_minutes
                 from ai_parser import format_availability_response
