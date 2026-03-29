@@ -142,6 +142,21 @@ def _ensure_schema(conn):
             sent_at     TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_msgqueue_status ON message_queue(status, created_at);
+
+        CREATE TABLE IF NOT EXISTS booking_photos (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id  TEXT NOT NULL,
+            photo_type  TEXT NOT NULL,
+            filename    TEXT NOT NULL,
+            mime_type   TEXT DEFAULT 'image/jpeg',
+            file_size   INTEGER,
+            storage_path TEXT,
+            notes       TEXT,
+            uploaded_by TEXT,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES bookings(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_photos_booking ON booking_photos(booking_id);
     """)
     conn.commit()
 
@@ -1073,3 +1088,55 @@ class StateManager:
                 count += 1
             conn.commit()
         return count
+
+    # ------------------------------------------------------------------
+    # Booking photos
+    # ------------------------------------------------------------------
+
+    def add_booking_photo(self, booking_id: str, photo_type: str, filename: str,
+                          mime_type: str = 'image/jpeg', file_size: int = None,
+                          storage_path: str = None, notes: str = None,
+                          uploaded_by: str = None) -> int:
+        """Insert a photo record and return its id."""
+        with self._conn() as conn:
+            cursor = conn.execute("""
+                INSERT INTO booking_photos
+                (booking_id, photo_type, filename, mime_type, file_size,
+                 storage_path, notes, uploaded_by)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (booking_id, photo_type, filename, mime_type, file_size,
+                  storage_path, notes, uploaded_by))
+            photo_id = cursor.lastrowid
+        self.log_booking_event(booking_id, 'photo_added', actor=uploaded_by or 'admin',
+                               details={'photo_type': photo_type, 'filename': filename})
+        return photo_id
+
+    def get_booking_photos(self, booking_id: str) -> list:
+        """Return all photos for a booking, ordered by created_at."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM booking_photos WHERE booking_id=? ORDER BY created_at",
+                (booking_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_booking_photo(self, photo_id: int) -> dict | None:
+        """Return a single photo record by id."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM booking_photos WHERE id=?",
+                (photo_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_booking_photo(self, photo_id: int) -> bool:
+        """Delete a photo record. Returns True if a row was deleted."""
+        photo = self.get_booking_photo(photo_id)
+        if not photo:
+            return False
+        with self._conn() as conn:
+            conn.execute("DELETE FROM booking_photos WHERE id=?", (photo_id,))
+        self.log_booking_event(photo['booking_id'], 'photo_deleted', actor='admin',
+                               details={'photo_type': photo['photo_type'],
+                                        'filename': photo['filename']})
+        return True

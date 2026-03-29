@@ -3116,4 +3116,132 @@ body.ap-body {
   /* Sidebar full width on very small screens */
   .ap-sidebar { width: min(280px, 85vw) !important; }
 }
+
+/* ============================================================
+   Photo Gallery, Dropzone & Lightbox
+   ============================================================ */
+
+/* Gallery layout */
+.ap-photo-gallery {
+  margin-top: 8px;
+}
+
+.ap-photo-group-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ap-text-muted);
+  margin: 10px 0 6px;
+}
+
+.ap-photo-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ap-photo-thumb {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid var(--ap-border);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.ap-photo-thumb:hover {
+  border-color: var(--ap-primary);
+  transform: scale(1.03);
+}
+.ap-photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ap-photo-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.7));
+}
+
+.ap-photo-type-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #fff;
+}
+.ap-photo-type-before { background: var(--ap-amber); }
+.ap-photo-type-after  { background: var(--ap-green); }
+
+.ap-photo-delete-btn {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 2px;
+}
+.ap-photo-delete-btn:hover {
+  color: var(--ap-red);
+}
+
+/* Dropzone */
+.ap-dropzone {
+  border: 2px dashed var(--ap-border-light);
+  border-radius: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--ap-text-muted);
+  transition: border-color 0.2s, background 0.2s;
+}
+.ap-dropzone:hover,
+.ap-dropzone--hover {
+  border-color: var(--ap-primary);
+  background: rgba(200, 16, 46, 0.06);
+}
+
+/* Lightbox */
+.ap-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.ap-lightbox-content {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.ap-lightbox-img {
+  max-width: 100%;
+  max-height: 80vh;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.ap-lightbox-actions {
+  display: flex;
+  gap: 8px;
+}
 """
