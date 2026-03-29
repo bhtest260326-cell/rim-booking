@@ -349,6 +349,100 @@ def _heatmap():
     return jsonify({"data": data})
 
 
+def _demand_heatmap():
+    """Booking density by day-of-week and suburb, with optional forecast."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT booking_data, preferred_date FROM bookings"
+        ).fetchall()
+
+    now = datetime.now(timezone.utc)
+    eight_weeks_ago = now - timedelta(weeks=8)
+
+    # Historical: day-of-week x suburb counts
+    dow_suburb = {}       # (dow, suburb) -> count
+    dow_counts_8w = {}    # dow -> list of weekly counts over last 8 weeks
+    dow_week_buckets = {} # dow -> {week_number: count}
+
+    for r in rows:
+        bd = _parse_booking_data(r["booking_data"])
+        preferred_date = r["preferred_date"] or ""
+        if not preferred_date:
+            continue
+
+        try:
+            dt = datetime.strptime(preferred_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except (ValueError, AttributeError):
+            continue
+
+        dow = dt.weekday()
+
+        # Extract suburb
+        suburb = (
+            bd.get("suburb")
+            or bd.get("address_suburb")
+            or bd.get("location_suburb")
+            or ""
+        )
+        if not suburb:
+            address = bd.get("address") or bd.get("location") or ""
+            if address:
+                parts = [p.strip() for p in address.split(",") if p.strip()]
+                suburb = parts[-1] if parts else ""
+        suburb = suburb.strip().title() if suburb else "Unknown"
+
+        key = (dow, suburb)
+        dow_suburb[key] = dow_suburb.get(key, 0) + 1
+
+        # Track per-dow weekly counts for the last 8 weeks (for forecast)
+        if dt >= eight_weeks_ago:
+            week_num = (now - dt).days // 7
+            if dow not in dow_week_buckets:
+                dow_week_buckets[dow] = {}
+            dow_week_buckets[dow][week_num] = dow_week_buckets[dow].get(week_num, 0) + 1
+
+    # Build heatmap data: list of {dow, suburb, count}
+    heatmap = [
+        {"dow": dow, "suburb": suburb, "count": count}
+        for (dow, suburb), count in sorted(dow_suburb.items(), key=lambda x: -x[1])
+    ]
+
+    # Forecast: simple moving average per day-of-week from last 8 weeks
+    # Predict bookings per dow for next 2 weeks
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    forecast = []
+    for dow in range(7):
+        weekly_counts = dow_week_buckets.get(dow, {})
+        # Get counts for each of the 8 weeks (0 if no bookings that week)
+        week_values = [weekly_counts.get(w, 0) for w in range(8)]
+        avg = round(sum(week_values) / max(len(week_values), 1), 1)
+        forecast.append({
+            "dow": dow,
+            "dow_name": dow_names[dow],
+            "avg_per_week": avg,
+            "predicted_2w": round(avg * 2, 1),
+        })
+
+    # Forecast dates for next 2 weeks
+    forecast_dates = []
+    for d in range(14):
+        fdate = now + timedelta(days=d)
+        dow = fdate.weekday()
+        avg = next((f["avg_per_week"] for f in forecast if f["dow"] == dow), 0)
+        forecast_dates.append({
+            "date": fdate.strftime("%Y-%m-%d"),
+            "dow": dow,
+            "dow_name": dow_names[dow],
+            "predicted": avg,
+        })
+
+    return jsonify({
+        "heatmap": heatmap[:50],  # Top 50 dow-suburb combinations
+        "forecast": forecast,
+        "forecast_dates": forecast_dates,
+    })
+
+
 # ---------------------------------------------------------------------------
 # Blueprint registration
 # ---------------------------------------------------------------------------
@@ -415,6 +509,15 @@ def register(bp, require_auth):
             return _heatmap()
         except Exception:
             logger.exception("analytics_heatmap error")
+            return jsonify({"error": "Internal server error"}), 500
+
+    @bp.route("/api/analytics/forecast", methods=["GET"])
+    @require_auth
+    def analytics_forecast():
+        try:
+            return _demand_heatmap()
+        except Exception:
+            logger.exception("analytics_forecast error")
             return jsonify({"error": "Internal server error"}), 500
 
 

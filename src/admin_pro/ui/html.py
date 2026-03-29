@@ -326,6 +326,12 @@ HTML_SECTIONS = """
 
 <!-- ═══════════════════════════════════════════════ ANALYTICS ══ -->
 <section class="ap-section" id="section-analytics">
+  <div class="ap-analytics-toolbar" style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
+    <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="exportAnalyticsCSV()" title="Export as CSV">
+      <svg viewBox="0 0 24 24" fill="none" width="14" height="14" style="margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><polyline points="7,10 12,15 17,10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      Export CSV
+    </button>
+  </div>
   <div class="ap-grid-4 ap-kpi-row">
     <div class="ap-card ap-kpi-card" id="ana-conversion">
       <div class="ap-kpi-label">Conversion Rate</div>
@@ -401,6 +407,22 @@ HTML_SECTIONS = """
       </div>
       <div class="ap-suburbs-list" id="suburbs-list">
         <div class="ap-table-empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ap-grid-1" style="margin-top:16px">
+    <div class="ap-card">
+      <div class="ap-card-header">
+        <span class="ap-card-title">Booking Demand Heatmap</span>
+        <div class="ap-chart-controls">
+          <button class="ap-pill ap-pill-xs" id="forecast-toggle" onclick="toggleDemandForecast()">Forecast</button>
+        </div>
+      </div>
+      <div class="ap-chart-container" id="chart-demand-heatmap" style="min-height:320px">
+        <div id="demand-heatmap-content">
+          <div class="ap-chart-placeholder" id="demand-placeholder">Loading heatmap…</div>
+        </div>
       </div>
     </div>
   </div>
