@@ -225,16 +225,22 @@ function renderDayDetail(dateStr) {
     <button class="ap-btn ap-btn-danger ap-btn-sm ap-mt-8" onclick="showCancelDayForm('${dateStr}')">&#9888; Cancel Day</button>
     <div class="ap-mt-16">
       ${bookings.map(b => `
-        <div class="ap-card ap-mt-8" style="padding:12px;cursor:pointer" onclick="openBookingDetail('${b.id}')">
-          <div class="ap-flex ap-flex-between">
+        <div class="ap-card ap-mt-8" style="padding:12px">
+          <div class="ap-flex ap-flex-between" style="cursor:pointer" onclick="openBookingDetail('${b.id}')">
             <strong>${escapeHtml(b.booking_data?.customer_name || 'Unknown')}</strong>
             ${statusBadge(b.status)}
           </div>
-          <div class="ap-text-muted" style="font-size:13px">
+          <div class="ap-text-muted" style="font-size:13px;margin-top:4px;cursor:pointer" onclick="openBookingDetail('${b.id}')">
             ${b.booking_data?.preferred_time || '?'} &middot;
             ${escapeHtml(b.booking_data?.address || b.booking_data?.suburb || '?')}
           </div>
-          <div style="font-size:13px">${serviceLabel(b.booking_data?.service_type)}</div>
+          <div style="font-size:13px;cursor:pointer" onclick="openBookingDetail('${b.id}')">${serviceLabel(b.booking_data?.service_type)}</div>
+          ${b.status === 'awaiting_owner' ? `
+            <div style="margin-top:8px;display:flex;gap:6px">
+              <button class="ap-btn ap-btn-success ap-btn-sm" onclick="calConfirmBooking('${b.id}','${dateStr}')">&#10003; Confirm</button>
+              <button class="ap-btn ap-btn-danger ap-btn-sm" onclick="calDeclineBooking('${b.id}','${dateStr}')">&#10007; Decline</button>
+            </div>
+          ` : ''}
         </div>
       `).join('')}
     </div>
@@ -276,6 +282,36 @@ async function submitCancelDay(dateStr) {
     if (panel) panel.innerHTML = '';
   } catch (err) {
     showToast('Failed to cancel day: ' + (err.message || 'Unknown error'), 'error');
+  }
+}
+
+// ── Inline Confirm / Decline from Calendar Panel ────────────
+
+async function calConfirmBooking(bookingId, dateStr) {
+  try {
+    await apiFetch('/v2/api/bookings/' + bookingId + '/confirm', { method: 'POST' });
+    showToast('Booking confirmed.', 'success');
+    await loadCalendarData();
+    renderCalendar();
+    renderDayDetail(dateStr);
+  } catch (err) {
+    showToast('Could not confirm: ' + (err.message || 'Unknown error'), 'error');
+  }
+}
+
+async function calDeclineBooking(bookingId, dateStr) {
+  if (!confirm('Decline this booking?')) return;
+  try {
+    await apiFetch('/v2/api/bookings/' + bookingId + '/decline', {
+      method: 'POST',
+      body: JSON.stringify({ reason: '' }),
+    });
+    showToast('Booking declined.', 'info');
+    await loadCalendarData();
+    renderCalendar();
+    renderDayDetail(dateStr);
+  } catch (err) {
+    showToast('Could not decline: ' + (err.message || 'Unknown error'), 'error');
   }
 }
 

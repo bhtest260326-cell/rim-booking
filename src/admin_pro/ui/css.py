@@ -797,7 +797,8 @@ body.ap-body {
   border-top-color: var(--ap-accent);
   background: var(--ap-card-hover);
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 8px 24px rgba(200,16,46,0.15);
+  cursor: pointer;
 }
 
 .ap-kpi-card.ap-kpi-accent {
@@ -864,6 +865,14 @@ body.ap-body {
   border: 1px solid var(--ap-border);
 }
 
+.ap-recent-bookings-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.ap-recent-bookings-wrap table {
+  min-width: 600px;
+}
+
 .ap-table {
   width: 100%;
   min-width: 700px;
@@ -915,6 +924,7 @@ body.ap-body {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 /* --- Buttons ----------------------------------------------- */

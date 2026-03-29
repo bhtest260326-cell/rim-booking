@@ -1112,6 +1112,20 @@ Address: {address}"""
     if notes:
         msg += f"\nNotes: {notes}"
 
+    image_assessment = booking_data.get('image_assessment')
+    if image_assessment and image_assessment.get('damage_level') != 'not_visible':
+        dmg = image_assessment.get('damage_level', '').title()
+        p_min = image_assessment.get('price_min', '')
+        p_max = image_assessment.get('price_max', '')
+        est_min = image_assessment.get('estimated_minutes', '')
+        confidence = image_assessment.get('confidence', '')
+        assessment_notes = image_assessment.get('assessment_notes', '')
+        msg += f"\n\n📸 AI Image Assessment ({confidence} confidence):"
+        msg += f"\n  Damage: {dmg}"
+        msg += f"\n  Estimate: ${p_min}–${p_max} | {est_min} min"
+        if assessment_notes:
+            msg += f"\n  Notes: {assessment_notes}"
+
     msg += "\n\nReply YES to confirm, NO to decline, or send any changes (e.g. 'find a free slot on 01/04', 'change time to 11am')"
     return msg
 

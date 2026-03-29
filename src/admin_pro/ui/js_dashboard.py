@@ -98,6 +98,9 @@ async function initDashboard() {
 
   // Auto-refresh every 30 seconds
   setAutoRefresh('dashboard', 30000);
+
+  // Wire KPI card click navigation
+  wireKpiClicks();
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +246,7 @@ function renderRecentBookings(bookings) {
         <td>${service}</td>
         <td>${date}</td>
         <td>${statusBadge}</td>
-        <td class="ap-table-actions">
+        <td class="ap-table-actions" style="white-space:nowrap">
           <button class="ap-btn ap-btn-sm ap-btn-success"
                   onclick="confirmBooking('${id}')">Confirm</button>
           <button class="ap-btn ap-btn-sm ap-btn-danger"
@@ -415,5 +418,23 @@ function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// ---------------------------------------------------------------------------
+// KPI Card click navigation
+// ---------------------------------------------------------------------------
+
+function wireKpiClicks() {
+  const map = {
+    'kpi-pending': function() { navigateTo('bookings'); setTimeout(function() { filterBookings('pending'); }, 100); },
+    'kpi-today':   function() { navigateTo('bookings'); setTimeout(function() { filterBookings('confirmed'); }, 100); },
+    'kpi-week':    function() { navigateTo('bookings'); setTimeout(function() { filterBookings('confirmed'); }, 100); },
+    'kpi-total':   function() { navigateTo('bookings'); setTimeout(function() { filterBookings('confirmed'); }, 100); },
+  };
+  Object.entries(map).forEach(function(entry) {
+    var id = entry[0], fn = entry[1];
+    var el = document.getElementById(id);
+    if (el) { el.style.cursor = 'pointer'; el.onclick = fn; el.title = 'Click to view'; }
+  });
 }
 """

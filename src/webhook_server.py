@@ -202,11 +202,20 @@ def create_app():
         if not message_sid:
             return 'Bad Request', 400
 
-        logger.info("Twilio webhook: SMS from %s SID=%s", from_number, message_sid)
+        # Extract MMS image attachments (if any)
+        num_media = int(request.form.get('NumMedia', '0') or '0')
+        media_items = []
+        for i in range(min(num_media, 4)):
+            media_url = request.form.get(f'MediaUrl{i}', '')
+            media_type = request.form.get(f'MediaContentType{i}', 'image/jpeg')
+            if media_url and media_type.startswith('image/'):
+                media_items.append({'url': media_url, 'media_type': media_type})
+
+        logger.info("Twilio webhook: SMS from %s SID=%s media=%d", from_number, message_sid, len(media_items))
 
         try:
             from twilio_handler import process_single_sms_webhook
-            process_single_sms_webhook(from_number, body_text, message_sid)
+            process_single_sms_webhook(from_number, body_text, message_sid, media_items=media_items or None)
         except Exception as e:
             logger.error("Twilio webhook processing error: %s", e, exc_info=True)
 

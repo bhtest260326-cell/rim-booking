@@ -114,6 +114,38 @@ def get_email_body(message):
                     return base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
     return ""
 
+
+def _extract_image_attachments(payload: dict) -> list:
+    """Extract image attachments from a Gmail message payload.
+
+    Returns a list of dicts with 'data' (base64url-decoded, re-encoded as
+    standard base64) and 'media_type' suitable for analyse_rim_images().
+    Capped at 4 images to control API cost.
+    """
+    _SUPPORTED_TYPES = ('image/jpeg', 'image/png', 'image/gif', 'image/webp')
+    images = []
+
+    def _collect(parts):
+        for part in parts:
+            if len(images) >= 4:
+                return
+            mime = part.get('mimeType', '')
+            if mime in _SUPPORTED_TYPES:
+                data = part.get('body', {}).get('data', '')
+                if data:
+                    # Gmail uses base64url; re-encode as standard base64 for Claude
+                    raw_bytes = base64.urlsafe_b64decode(data + '==')
+                    images.append({
+                        'data': base64.b64encode(raw_bytes).decode(),
+                        'media_type': mime,
+                    })
+            # Recurse into multipart containers
+            if part.get('parts'):
+                _collect(part['parts'])
+
+    _collect(payload.get('parts', []))
+    return images
+
 def get_email_headers(message):
     headers = {}
     for h in message.get('payload', {}).get('headers', []):
@@ -177,6 +209,7 @@ def _process_single_message(service, state, msg_id):
     headers = get_email_headers(message)
     from_header = headers.get('From', '')
     subject = headers.get('Subject', '(no subject)')
+    payload = message.get('payload', {})
     message_id_header = headers.get('Message-ID', '')
     customer_email = extract_email_address(from_header)
     body = get_email_body(message)
@@ -221,9 +254,11 @@ def _process_single_message(service, state, msg_id):
                 return
         except Exception as e:
             logger.error(f"Availability inquiry check failed for {customer_email}: {e}")
+        email_images = _extract_image_attachments(payload)
         handle_new_enquiry(
             service, state, msg_id, thread_id,
-            body, subject, customer_email, message_id_header
+            body, subject, customer_email, message_id_header,
+            images=email_images if email_images else None,
         )
 
     state.mark_email_processed(msg_id)
@@ -808,8 +843,12 @@ def handle_availability_inquiry(msg_id, thread_id, subject, body, customer_email
     state.mark_email_processed(msg_id)
 
 
-def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, customer_email, message_id_header=None):
-    """Process a brand new booking enquiry."""
+def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, customer_email, message_id_header=None, images=None):
+    """Process a brand new booking enquiry.
+
+    images: optional list of {'data': base64str, 'media_type': str} dicts
+            extracted from email attachments.
+    """
     try:
         booking_data, missing_fields, needs_clarification = extract_booking_details(
             body, subject, customer_email
@@ -972,6 +1011,17 @@ def handle_new_enquiry(service, state, msg_id, thread_id, body, subject, custome
                 logger.info(f"Returning customer detected: {customer_email}, last service {last_date}")
         except Exception as _e:
             logger.debug(f"Returning customer check failed (non-fatal): {_e}")
+
+        # --- Image Analysis ---
+        if images:
+            try:
+                from image_analyser import analyse_rim_images
+                assessment = analyse_rim_images(images)
+                if assessment:
+                    booking_data['image_assessment'] = assessment
+                    logger.info("Image assessment stored for booking from %s", customer_email)
+            except Exception as e:
+                logger.warning("Image analysis failed (non-fatal): %s", e)
 
         _assign_best_slot(booking_data, state)
         pending_id = state.create_pending_booking(

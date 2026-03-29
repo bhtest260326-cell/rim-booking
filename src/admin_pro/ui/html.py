@@ -220,7 +220,7 @@ HTML_SECTIONS = """
         <span class="ap-card-title">Recent Bookings</span>
         <button class="ap-btn ap-btn-ghost ap-btn-xs" onclick="showSection('bookings')">View all</button>
       </div>
-      <div class="ap-table-wrap">
+      <div class="ap-table-wrap ap-recent-bookings-wrap">
         <table class="ap-table" id="recent-bookings-table">
           <thead>
             <tr>

@@ -503,6 +503,8 @@ async function openBookingDetail(bookingId) {
       \'      <p class="ap-notes-text">\' + (notes || \'<span class="ap-muted">None</span>\') + \'</p>\',
       \'      <button class="ap-btn ap-btn-ghost ap-btn--sm" onclick="addNote(\\'\' + bookingId + \'\\')">+ Add note</button>\',
 
+      renderImageAssessment(bd.image_assessment),
+
       \'    </div>\',
       \'    <div class="ap-booking-detail__trail">\',
       \'      <h4 class="ap-detail-heading">Audit Trail</h4>\',
@@ -767,5 +769,43 @@ async function addNote(bookingId) {
   } catch (err) {
     showToast(\'Could not add note: \' + err.message, \'error\');
   }
+}
+
+// ── Image Assessment card ────────────────────────────────────
+function renderImageAssessment(assessment) {
+  if (!assessment || assessment.damage_level === 'not_visible') return '';
+
+  const LEVEL_COLOUR = {
+    minor:    { bg: '#f0fdf4', border: '#bbf7d0', text: '#166534' },
+    moderate: { bg: '#fffbeb', border: '#fde68a', text: '#92400e' },
+    severe:   { bg: '#fff1f2', border: '#fecaca', text: '#991b1b' },
+  };
+  const lvl   = (assessment.damage_level || '').toLowerCase();
+  const theme = LEVEL_COLOUR[lvl] || { bg: '#f8fafc', border: '#e2e8f0', text: '#334155' };
+  const label = escapeHtml((assessment.damage_level || '').replace(/_/g, ' '));
+  const conf  = escapeHtml(assessment.confidence || '');
+  const notes = escapeHtml(assessment.assessment_notes || '');
+  const mins  = assessment.estimated_minutes ? escapeHtml(String(assessment.estimated_minutes)) + \' min\' : \'\';
+  const price = (assessment.price_min && assessment.price_max)
+    ? \'$\' + escapeHtml(String(assessment.price_min)) + \'–$\' + escapeHtml(String(assessment.price_max))
+    : \'\';
+
+  return [
+    \'<h4 class="ap-detail-heading" style="margin-top:18px">📸 AI Image Assessment</h4>\',
+    \'<div style="background:\' + theme.bg + \';border:1px solid \' + theme.border + \';\',
+    \'border-radius:8px;padding:12px 14px;font-size:0.85rem;">\',
+    \'  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">\',
+    \'    <span style="font-weight:700;color:\' + theme.text + \';text-transform:capitalize;">\' + label + \' damage</span>\',
+    conf ? \'    <span style="color:var(--ap-text-muted);font-size:0.78rem;">(\' + conf + \' confidence)</span>\' : \'\',
+    \'  </div>\',
+    (price || mins) ? (
+      \'  <div style="display:flex;gap:16px;margin-bottom:6px;">\' +
+      (price ? \'<span><strong>Est. price:</strong> \' + price + \'</span>\' : \'\') +
+      (mins  ? \'<span><strong>Est. time:</strong> \' + mins + \'</span>\' : \'\') +
+      \'  </div>\'
+    ) : \'\',
+    notes ? \'  <div style="color:var(--ap-text-muted);">\' + notes + \'</div>\' : \'\',
+    \'</div>\',
+  ].join(\'\');
 }
 """

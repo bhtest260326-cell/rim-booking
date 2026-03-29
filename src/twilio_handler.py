@@ -134,12 +134,15 @@ def _send_calendar_invite_fallback(pending_id, booking_data, reason="parallel co
     else:
         logger.error(f"Could not create calendar invite for booking {pending_id}")
 
-def _handle_customer_sms(from_number, body_text, message_sid, state):
-    """Handle an inbound SMS from a customer (not the owner).
+def _handle_customer_sms(from_number, body_text, message_sid, state, media_items=None):
+    """Handle an inbound SMS/MMS from a customer (not the owner).
 
-    Looks up the customer by phone number in confirmed bookings.
-    If found, forwards the message to the owner with booking context.
+    Looks up the customer by phone number in confirmed/pending bookings.
+    If the message includes images (MMS), runs AI rim damage analysis and
+    attaches the assessment to the booking before forwarding to the owner.
     Sends a brief auto-acknowledgement to the customer.
+
+    media_items: optional list of {'url': str, 'media_type': str} dicts.
     """
     if not get_flag('flag_auto_sms_customer'):
         return  # only respond if customer SMS feature is enabled
@@ -174,24 +177,81 @@ def _handle_customer_sms(from_number, body_text, message_sid, state):
                 logger.warning('_handle_customer_sms: error parsing booking row: %s', e)
 
         if matched_booking_id:
+            # --- MMS Image Analysis ---
+            image_assessment = None
+            if media_items:
+                try:
+                    from image_analyser import analyse_rim_images, download_twilio_media
+                    images = []
+                    for item in media_items[:4]:
+                        downloaded = download_twilio_media(item['url'], item.get('media_type', 'image/jpeg'))
+                        if downloaded:
+                            images.append(downloaded)
+                    if images:
+                        image_assessment = analyse_rim_images(images)
+                        if image_assessment:
+                            # Persist assessment on the booking
+                            try:
+                                from state_manager import _get_conn
+                                import json as _json
+                                with _get_conn() as _conn:
+                                    row = _conn.execute(
+                                        "SELECT booking_data FROM bookings WHERE id=?",
+                                        (matched_booking_id,)
+                                    ).fetchone()
+                                    if row:
+                                        bd = _json.loads(row['booking_data'])
+                                        bd['image_assessment'] = image_assessment
+                                        _conn.execute(
+                                            "UPDATE bookings SET booking_data=? WHERE id=?",
+                                            (_json.dumps(bd), matched_booking_id)
+                                        )
+                            except Exception as _pe:
+                                logger.warning("Could not persist MMS image assessment: %s", _pe)
+                except Exception as _ia_err:
+                    logger.warning("MMS image analysis failed (non-fatal): %s", _ia_err)
+
             # Forward to owner with context
             owner_msg = (
+                f"📱 Customer MMS — {matched_name} (booking {matched_booking_id}, {matched_date}):\n"
+                f"\"{body_text[:160]}\""
+                if media_items else
                 f"📱 Customer SMS — {matched_name} (booking {matched_booking_id}, {matched_date}):\n"
                 f"\"{body_text[:160]}\""
             )
+            if image_assessment:
+                dmg = image_assessment.get('damage_level', '').title()
+                p_min = image_assessment.get('price_min', '')
+                p_max = image_assessment.get('price_max', '')
+                mins = image_assessment.get('estimated_minutes', '')
+                owner_msg += (
+                    f"\n📸 AI Assessment: {dmg} damage | "
+                    f"${p_min}–${p_max} | {mins} min"
+                )
             send_sms(os.environ['OWNER_MOBILE'], owner_msg)
 
             # Auto-acknowledge to customer
-            ack_msg = (
-                f"Hi {matched_name}, thanks for your message — we've received it and will be in touch shortly. "
-                f"- Wheel Doctor Team"
-            )
+            if media_items and image_assessment and image_assessment.get('damage_level') != 'not_visible':
+                dmg = image_assessment.get('damage_level', '').title()
+                p_min = image_assessment.get('price_min', '')
+                p_max = image_assessment.get('price_max', '')
+                ack_msg = (
+                    f"Hi {matched_name}, thanks for the photos! Our AI has assessed the damage as "
+                    f"{dmg.lower()} — estimated ${p_min}–${p_max}. "
+                    f"We'll confirm the final quote when we arrive. - Wheel Doctor Team"
+                )
+            else:
+                ack_msg = (
+                    f"Hi {matched_name}, thanks for your message — we've received it and will be in touch shortly. "
+                    f"- Wheel Doctor Team"
+                )
             send_sms(from_number, ack_msg)
 
             # Log the event
             try:
                 state.log_booking_event(matched_booking_id, 'customer_sms_received', actor='customer',
-                    details={'message_snippet': body_text[:200], 'from': normalised})
+                    details={'message_snippet': body_text[:200], 'from': normalised,
+                             'has_images': bool(media_items)})
             except Exception as e:
                 logger.warning('_handle_customer_sms: could not log event for %s: %s', matched_booking_id, e)
 
@@ -204,14 +264,19 @@ def _handle_customer_sms(from_number, body_text, message_sid, state):
         logger.error(f"Customer SMS handling error: {e}", exc_info=True)
 
 
-def process_single_sms_webhook(from_number, body_text, message_sid):
+def process_single_sms_webhook(from_number, body_text, message_sid, media_items=None):
+    """Process an inbound Twilio SMS/MMS.
+
+    media_items: optional list of {'url': str, 'media_type': str} dicts
+                 from NumMedia/MediaUrl0 form params — customer image uploads.
+    """
     state = StateManager()
     if state.is_sms_processed(message_sid):
         return
     owner_mobile = normalise_phone(os.environ.get('OWNER_MOBILE', ''))
     if normalise_phone(from_number) != owner_mobile:
         # This is NOT from the owner — check if it's from a known customer
-        _handle_customer_sms(from_number, body_text, message_sid, state)
+        _handle_customer_sms(from_number, body_text, message_sid, state, media_items=media_items)
         state.mark_sms_processed(message_sid)
         return
     body = body_text.strip()
