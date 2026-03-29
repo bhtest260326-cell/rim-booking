@@ -372,16 +372,43 @@ function animateCounter(el, target, duration = 800) {
   requestAnimationFrame(step);
 }
 
-// Toggle sidebar collapsed state
+// Toggle sidebar — desktop collapses to icon-only; mobile slides in as overlay
 function toggleSidebar() {
-  const sidebar = document.querySelector('.ap-sidebar');
+  const sidebar  = document.querySelector('.ap-sidebar');
+  const main     = document.getElementById('ap-main');
+  const overlay  = document.getElementById('ap-sidebar-overlay');
   if (!sidebar) return;
-  APP.sidebarCollapsed = !APP.sidebarCollapsed;
-  if (APP.sidebarCollapsed) {
-    sidebar.classList.add('collapsed');
+
+  const isMobile = window.innerWidth <= 768;
+
+  if (isMobile) {
+    // Mobile: slide sidebar in/out as an overlay
+    const isOpen = sidebar.classList.contains('mobile-open');
+    if (isOpen) {
+      sidebar.classList.remove('mobile-open');
+      if (overlay) overlay.classList.remove('active');
+    } else {
+      sidebar.classList.add('mobile-open');
+      if (overlay) overlay.classList.add('active');
+    }
   } else {
-    sidebar.classList.remove('collapsed');
+    // Desktop: collapse sidebar to icon-only width
+    APP.sidebarCollapsed = !APP.sidebarCollapsed;
+    if (APP.sidebarCollapsed) {
+      sidebar.classList.add('collapsed');
+      if (main) main.classList.add('sidebar-collapsed');
+    } else {
+      sidebar.classList.remove('collapsed');
+      if (main) main.classList.remove('sidebar-collapsed');
+    }
   }
+}
+
+function closeSidebarMobile() {
+  const sidebar = document.querySelector('.ap-sidebar');
+  const overlay = document.getElementById('ap-sidebar-overlay');
+  if (sidebar) sidebar.classList.remove('mobile-open');
+  if (overlay) overlay.classList.remove('active');
 }
 
 // ── Refresh System ───────────────────────────────────────────

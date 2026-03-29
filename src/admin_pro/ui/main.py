@@ -27,8 +27,9 @@ def _build_html():
 </style>
 </head>
 <body class="ap-body">
+<div class="ap-sidebar-overlay" id="ap-sidebar-overlay" onclick="closeSidebarMobile()"></div>
 {HTML_SIDEBAR}
-<div class="ap-main-wrapper">
+<div class="ap-main" id="ap-main">
 {HTML_TOPBAR}
 <main class="ap-content">
 {HTML_SECTIONS}

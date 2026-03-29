@@ -117,6 +117,9 @@ HTML_SIDEBAR = """
 
 HTML_TOPBAR = """
 <div class="ap-topbar">
+  <button class="ap-hamburger" id="ap-hamburger" onclick="toggleSidebar()" title="Toggle menu" aria-label="Toggle menu">
+    <span></span><span></span><span></span>
+  </button>
   <div class="ap-topbar-left">
     <h1 class="ap-page-title" id="ap-page-title">Dashboard</h1>
     <span class="ap-page-subtitle" id="ap-page-subtitle">Overview &amp; live metrics</span>

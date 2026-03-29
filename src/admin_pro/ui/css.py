@@ -99,10 +99,48 @@ body.ap-body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  display: flex;
-  flex-direction: row;
   min-height: 100vh;
-  overflow: hidden;
+  overflow-x: hidden;
+}
+
+/* --- Mobile Sidebar Overlay -------------------------------- */
+.ap-sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 99;
+  backdrop-filter: blur(2px);
+}
+.ap-sidebar-overlay.active {
+  display: block;
+}
+
+/* --- Hamburger Button (mobile only) ----------------------- */
+.ap-hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 36px;
+  height: 36px;
+  padding: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--ap-radius-sm);
+  flex-shrink: 0;
+}
+.ap-hamburger span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background: var(--ap-text-dim);
+  border-radius: 2px;
+  transition: background var(--ap-transition);
+}
+.ap-hamburger:hover span {
+  background: var(--ap-text);
 }
 
 /* --- Sidebar ----------------------------------------------- */
@@ -263,9 +301,32 @@ body.ap-body {
   text-align: center;
 }
 
+/* --- Sidebar Toggle Button --------------------------------- */
+.ap-sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid var(--ap-border);
+  border-radius: 50%;
+  color: var(--ap-text-dim);
+  cursor: pointer;
+  margin: 12px auto 8px;
+  transition: color var(--ap-transition), background var(--ap-transition),
+              transform var(--ap-transition);
+}
+.ap-sidebar-toggle:hover {
+  color: var(--ap-text);
+  background: rgba(255,255,255,0.06);
+}
+.ap-sidebar.collapsed .ap-sidebar-toggle {
+  transform: rotate(180deg);
+}
+
 /* --- Main Content Area ------------------------------------- */
 .ap-main {
-  flex: 1;
   margin-left: var(--ap-sidebar-width);
   display: flex;
   flex-direction: column;
@@ -1321,41 +1382,54 @@ body.ap-body {
   background: var(--ap-text-muted);
 }
 
-/* --- Responsive -------------------------------------------- */
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE DESIGN
+   ════════════════════════════════════════════════════════ */
+
+/* --- Large tablets / small laptops (1100px) --------------- */
 @media (max-width: 1100px) {
-  .ap-grid-4 {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  .ap-grid-4 { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* --- Tablets (900px) --------------------------------------- */
 @media (max-width: 900px) {
-  .ap-grid-3 {
-    grid-template-columns: repeat(2, 1fr);
+  .ap-grid-3 { grid-template-columns: repeat(2, 1fr); }
+
+  .ap-content { padding: 20px; }
+
+  .ap-calendar-grid-cells {
+    font-size: 12px;
+  }
+  .ap-calendar-day {
+    min-height: 60px;
+    padding: 4px;
   }
 }
 
+/* --- Mobile / portrait tablet (768px) --------------------- */
 @media (max-width: 768px) {
-  :root {
-    --ap-sidebar-width: var(--ap-sidebar-collapsed);
-  }
+  /* Show hamburger, hide desktop sidebar toggle */
+  .ap-hamburger { display: flex; }
+  .ap-sidebar-toggle { display: none; }
 
+  /* Sidebar: hidden off-screen by default; slides in as overlay */
   .ap-sidebar {
-    width: var(--ap-sidebar-collapsed);
+    transform: translateX(-100%);
+    transition: transform var(--ap-transition), width var(--ap-transition);
+    width: var(--ap-sidebar-width) !important;
+    z-index: 101;
+  }
+  .ap-sidebar.mobile-open {
+    transform: translateX(0);
   }
 
-  .ap-sidebar .ap-sidebar-logo-text,
-  .ap-sidebar .ap-nav-label,
-  .ap-sidebar .ap-nav-section-label {
-    display: none;
+  /* Main fills full width — no sidebar margin */
+  .ap-main,
+  .ap-main.sidebar-collapsed {
+    margin-left: 0 !important;
   }
 
-  .ap-main {
-    margin-left: var(--ap-sidebar-collapsed);
-  }
-
-  .ap-content {
-    padding: 16px;
-  }
+  .ap-content { padding: 14px; }
 
   .ap-grid-2,
   .ap-grid-3,
@@ -1363,50 +1437,86 @@ body.ap-body {
     grid-template-columns: 1fr;
   }
 
-  .ap-search-input {
-    width: 160px;
+  .ap-search-wrap { display: none; }
+
+  .ap-topbar {
+    gap: 10px;
+    padding: 0 14px;
   }
 
-  .ap-search-input:focus {
-    width: 180px;
-  }
+  .ap-topbar-left h1 { font-size: 14px; }
+  .ap-topbar-left span { display: none; }
 
-  .ap-topbar-username {
-    display: none;
-  }
+  .ap-user-badge span { display: none; }
 
   .ap-pipeline {
     flex-wrap: wrap;
     gap: 8px;
   }
+  .ap-pipeline-arrow { display: none; }
 
-  .ap-pipeline-arrow {
-    display: none;
+  /* Calendar mobile */
+  .ap-calendar-dow-row {
+    font-size: 10px;
   }
+  .ap-calendar-day {
+    min-height: 44px;
+    padding: 3px;
+    font-size: 11px;
+  }
+  .ap-cal-day-num { font-size: 12px; }
 
+  /* Modals full-screen on mobile */
+  .ap-modal-dialog,
   .ap-modal {
-    max-width: 100%;
-    margin: 0 8px;
+    max-width: 100% !important;
+    margin: 0;
+    border-radius: 0;
+    min-height: 40vh;
+    max-height: 90vh;
+  }
+  .ap-modal-overlay {
+    align-items: flex-end;
   }
 
+  /* Toast */
   .ap-toast-container {
-    right: 12px;
-    bottom: 12px;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
   }
+  .ap-toast { max-width: 100%; }
 
-  .ap-toast {
-    max-width: calc(100vw - 24px);
-  }
+  /* Tables horizontal scroll */
+  .ap-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* KPI row stacks */
+  .ap-kpi-row { gap: 10px; }
 }
 
+/* --- Small phones (480px) ---------------------------------- */
 @media (max-width: 480px) {
-  .ap-kpi-value {
-    font-size: 1.8rem;
+  :root {
+    --ap-topbar-height: 52px;
   }
 
-  .ap-topbar {
-    padding: 0 12px;
-    gap: 10px;
+  .ap-topbar { padding: 0 10px; gap: 8px; }
+
+  .ap-kpi-value { font-size: 1.8rem !important; }
+
+  .ap-content { padding: 10px; }
+
+  .ap-card { padding: 14px; }
+
+  /* Calendar: tighten cells further */
+  .ap-calendar-day {
+    min-height: 36px;
+    padding: 2px;
   }
+  .ap-cal-day-num { font-size: 11px; }
+  .ap-cal-dot { display: none; }
+
+  /* Sidebar full width on very small screens */
+  .ap-sidebar { width: min(280px, 85vw) !important; }
 }
 """

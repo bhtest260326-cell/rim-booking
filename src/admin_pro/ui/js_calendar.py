@@ -32,8 +32,8 @@ async function loadCalendarData() {
 
   // Group by preferred_date
   CAL_STATE.bookingsByDate = {};
-  (data.data?.bookings || []).forEach(b => {
-    const d = b.booking_data?.preferred_date;
+  (data.bookings || []).forEach(b => {
+    const d = (b.booking_data && b.booking_data.preferred_date) || b.preferred_date;
     if (d) {
       if (!CAL_STATE.bookingsByDate[d]) CAL_STATE.bookingsByDate[d] = [];
       CAL_STATE.bookingsByDate[d].push(b);
@@ -44,8 +44,8 @@ async function loadCalendarData() {
   const pendingData = await apiFetch(
     `/v2/api/bookings?status=awaiting_owner&date_from=${dateFrom}&date_to=${dateTo}&per_page=200`
   );
-  (pendingData.data?.bookings || []).forEach(b => {
-    const d = b.booking_data?.preferred_date;
+  (pendingData.bookings || []).forEach(b => {
+    const d = (b.booking_data && b.booking_data.preferred_date) || b.preferred_date;
     if (d) {
       if (!CAL_STATE.bookingsByDate[d]) CAL_STATE.bookingsByDate[d] = [];
       CAL_STATE.bookingsByDate[d].push(b);
