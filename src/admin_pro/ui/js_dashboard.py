@@ -96,11 +96,14 @@ async function initDashboard() {
     showSectionError('dashboard-system-status', 'Could not load system status');
   }
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 30 seconds (fallback if SSE disconnects)
   setAutoRefresh('dashboard', 30000);
 
   // Wire KPI card click navigation
   wireKpiClicks();
+
+  // Start SSE connection for real-time updates
+  initSSE();
 }
 
 // ---------------------------------------------------------------------------
@@ -427,5 +430,130 @@ function wireKpiClicks() {
     var el = document.getElementById(id);
     if (el) { el.style.cursor = 'pointer'; el.onclick = fn; el.title = 'Click to view'; }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Server-Sent Events (SSE) — real-time dashboard updates
+// ---------------------------------------------------------------------------
+
+var _sseSource = null;
+var _sseReconnectDelay = 1000;   // starts at 1s, exponential backoff
+var _sseMaxDelay = 30000;        // cap at 30s
+var _sseReconnectTimer = null;
+
+function initSSE() {
+  if (_sseSource) {
+    _sseSource.close();
+    _sseSource = null;
+  }
+  if (_sseReconnectTimer) {
+    clearTimeout(_sseReconnectTimer);
+    _sseReconnectTimer = null;
+  }
+
+  if (typeof EventSource === 'undefined') {
+    console.warn('SSE: EventSource not supported, falling back to polling');
+    _setSseStatus(false);
+    return;
+  }
+
+  _sseReconnectDelay = 1000;
+  _connectSSE();
+}
+
+function _connectSSE() {
+  try {
+    _sseSource = new EventSource('/v2/api/events');
+  } catch (err) {
+    console.error('SSE: failed to create EventSource', err);
+    _setSseStatus(false);
+    _scheduleReconnect();
+    return;
+  }
+
+  _sseSource.addEventListener('connected', function() {
+    console.log('SSE: connected');
+    _sseReconnectDelay = 1000;
+    _setSseStatus(true);
+
+    // SSE is live — disable polling to avoid duplicate refreshes
+    if (APP && APP.refreshTimers && APP.refreshTimers['dashboard']) {
+      clearInterval(APP.refreshTimers['dashboard']);
+      delete APP.refreshTimers['dashboard'];
+    }
+  });
+
+  _sseSource.addEventListener('booking_update', function(e) {
+    console.log('SSE: booking_update', e.data);
+    initDashboard();
+    // Notify the activity feed if visible
+    if (typeof loadActivity === 'function') loadActivity();
+  });
+
+  _sseSource.addEventListener('new_booking', function(e) {
+    console.log('SSE: new_booking', e.data);
+    showToast('New booking received!', 'info');
+    initDashboard();
+    if (typeof loadActivity === 'function') loadActivity();
+  });
+
+  _sseSource.addEventListener('status_change', function(e) {
+    console.log('SSE: status_change', e.data);
+    var data = {};
+    try { data = JSON.parse(e.data); } catch (_) {}
+    var action = data.action || 'updated';
+    showToast('Booking ' + action, action === 'confirmed' ? 'success' : 'info');
+    initDashboard();
+    if (typeof loadActivity === 'function') loadActivity();
+  });
+
+  _sseSource.addEventListener('notification', function(e) {
+    console.log('SSE: notification', e.data);
+    var data = {};
+    try { data = JSON.parse(e.data); } catch (_) {}
+    showToast(data.message || 'System notification', 'info');
+  });
+
+  _sseSource.onerror = function() {
+    console.warn('SSE: connection lost');
+    _setSseStatus(false);
+    _sseSource.close();
+    _sseSource = null;
+
+    // Re-enable polling as fallback
+    setAutoRefresh('dashboard', 30000);
+    _scheduleReconnect();
+  };
+}
+
+function _scheduleReconnect() {
+  if (_sseReconnectTimer) clearTimeout(_sseReconnectTimer);
+  _sseReconnectTimer = setTimeout(function() {
+    console.log('SSE: attempting reconnect (' + _sseReconnectDelay + 'ms delay)');
+    _connectSSE();
+  }, _sseReconnectDelay);
+
+  // Exponential backoff with cap
+  _sseReconnectDelay = Math.min(_sseReconnectDelay * 2, _sseMaxDelay);
+}
+
+function _setSseStatus(connected) {
+  var dot = document.getElementById('sse-status-dot');
+  if (!dot) {
+    // Create the SSE connection indicator in the header area
+    dot = document.createElement('span');
+    dot.id = 'sse-status-dot';
+    dot.title = 'Live connection status';
+    dot.style.cssText = 'display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:8px;vertical-align:middle;transition:background .3s;';
+    // Try to insert near the header / top bar
+    var header = document.querySelector('.ap-topbar-right') || document.querySelector('.ap-topbar') || document.querySelector('header');
+    if (header) {
+      header.appendChild(dot);
+    } else {
+      document.body.insertBefore(dot, document.body.firstChild);
+    }
+  }
+  dot.style.background = connected ? '#22c55e' : '#ef4444';
+  dot.title = connected ? 'Live: connected' : 'Live: disconnected (polling fallback)';
 }
 """

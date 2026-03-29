@@ -6,6 +6,7 @@ Endpoints:
   POST /webhook/twilio/sms     — Twilio inbound SMS from the owner
   GET  /health                 — Railway health check
   GET  /health/detailed        — Per-component health check
+  GET  /v2/api/events           — Server-Sent Events stream for dashboard
 """
 
 import os
@@ -14,10 +15,38 @@ import json
 import base64
 import logging
 import time
+import queue
+import threading
 import collections
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# SSE pub/sub — in-memory list of queues, one per connected client
+# ---------------------------------------------------------------------------
+_sse_clients: list[queue.Queue] = []
+_sse_clients_lock = threading.Lock()
+
+
+def broadcast_event(event_type: str, data: dict | None = None):
+    """Push an event to all connected SSE clients.
+
+    Args:
+        event_type: One of 'booking_update', 'new_booking', 'status_change', 'notification'.
+        data: JSON-serialisable dict payload (optional).
+    """
+    payload = json.dumps(data or {})
+    message = f"event: {event_type}\ndata: {payload}\n\n"
+    dead: list[queue.Queue] = []
+    with _sse_clients_lock:
+        for q in _sse_clients:
+            try:
+                q.put_nowait(message)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            _sse_clients.remove(q)
 
 _PUBSUB_TOKEN = os.environ.get('PUBSUB_WEBHOOK_TOKEN', '')
 
@@ -122,6 +151,44 @@ def create_app():
         return send_from_directory(static_dir, safe_name)
 
     # ------------------------------------------------------------------
+    # SSE stream for real-time dashboard updates
+    # ------------------------------------------------------------------
+
+    @app.route('/v2/api/events')
+    def sse_stream():
+        """Server-Sent Events endpoint for real-time dashboard updates."""
+        def _generate():
+            client_queue: queue.Queue = queue.Queue(maxsize=256)
+            with _sse_clients_lock:
+                _sse_clients.append(client_queue)
+            try:
+                # Send initial heartbeat so the client knows we are connected
+                yield "event: connected\ndata: {}\n\n"
+                while True:
+                    try:
+                        msg = client_queue.get(timeout=30)
+                        yield msg
+                    except queue.Empty:
+                        # Send a comment as keep-alive to detect disconnects
+                        yield ": keepalive\n\n"
+            except GeneratorExit:
+                pass
+            finally:
+                with _sse_clients_lock:
+                    if client_queue in _sse_clients:
+                        _sse_clients.remove(client_queue)
+
+        return Response(
+            _generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive',
+            },
+        )
+
+    # ------------------------------------------------------------------
     # Gmail / Pub/Sub webhook
     # ------------------------------------------------------------------
 
@@ -189,6 +256,7 @@ def create_app():
             except Exception as e:
                 # Fix 6 — log instead of silently swallowing
                 logger.warning("Failed to update last_gmail_poll_at: %s", e)
+            broadcast_event('new_booking', {'source': 'email', 'history_id': str(history_id)})
         except Exception as e:
             logger.error("Gmail webhook processing error: %s", e, exc_info=True)
             # Return 200 anyway — returning 4xx/5xx causes Pub/Sub to retry
@@ -239,6 +307,7 @@ def create_app():
         try:
             from twilio_handler import process_single_sms_webhook
             process_single_sms_webhook(from_number, body_text, message_sid, media_items=media_items or None)
+            broadcast_event('booking_update', {'source': 'sms', 'from': from_number})
         except Exception as e:
             logger.error("Twilio webhook processing error: %s", e, exc_info=True)
 
@@ -508,6 +577,13 @@ def create_app():
             # Fix 6 — log instead of silently swallowing
             logger.warning("Failed to log booking event: %s", e)
 
+        broadcast_event('booking_update', {
+            'booking_id': booking_id,
+            'action': 'rescheduled',
+            'old_date': old_date,
+            'new_date': new_date,
+        })
+
         # Notify owner via SMS
         if get_flag('flag_auto_sms_owner'):
             try:
@@ -605,6 +681,10 @@ def create_app():
             state.decline_booking(booking_id)
             state.log_booking_event(booking_id, 'cancelled', actor='customer_self_service',
                                     details={'method': 'reschedule_link'})
+            broadcast_event('status_change', {
+                'booking_id': booking_id,
+                'action': 'cancelled',
+            })
         except Exception as e:
             logger.warning("Cancel booking %s failed: %s", booking_id, e)
             return "<h2 style='font-family:sans-serif;'>An error occurred. Please contact us to cancel.</h2>", 500
@@ -851,6 +931,7 @@ async function submitBooking(e) {
                     logger.warning("Web form: owner SMS failed: %s", e)
 
             logger.info("Web form booking created: %s", booking_id)
+            broadcast_event('new_booking', {'booking_id': booking_id, 'source': 'web_form'})
             return jsonify({'ok': True, 'booking_id': booking_id})
 
         except Exception:

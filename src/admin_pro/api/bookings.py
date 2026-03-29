@@ -400,6 +400,10 @@ def register(bp, require_auth):
                 }
             )
             logger.info("Admin confirmed booking %s (sms=%s email=%s)", booking_id, notif['sms_sent'], notif['email_sent'])
+
+            from webhook_server import broadcast_event
+            broadcast_event('status_change', {'booking_id': booking_id, 'action': 'confirmed'})
+
             return jsonify({'ok': True})
 
         except Exception:
@@ -459,6 +463,10 @@ def register(bp, require_auth):
                 booking_id, 'declined', actor='owner_ui', details=details
             )
             logger.info("Admin declined booking %s (reason: %s)", booking_id, reason or 'none')
+
+            from webhook_server import broadcast_event
+            broadcast_event('status_change', {'booking_id': booking_id, 'action': 'declined'})
+
             return jsonify({'ok': True})
 
         except Exception:

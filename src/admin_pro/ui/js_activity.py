@@ -33,6 +33,8 @@ async function initActivity() {
   if (ACTIVITY_STATE.autoRefresh) {
     ACTIVITY_STATE.refreshInterval = setInterval(loadActivity, 30000);
   }
+  // Connect to SSE for real-time activity updates
+  _initActivitySSE();
 }
 
 // ── Controls ─────────────────────────────────────────────────
@@ -291,5 +293,41 @@ function injectActivityStyles() {
     .ap-mb-16 { margin-bottom: 16px; }
   `;
   document.head.appendChild(style);
+}
+
+// ── SSE integration for real-time activity updates ──────────
+// Listens to the shared SSE stream and prepends new items
+// without doing a full reload. Falls back to polling if SSE
+// is not available.
+
+var _activitySSEBound = false;
+
+function _initActivitySSE() {
+  // The SSE connection is managed by js_dashboard (initSSE / _sseSource).
+  // We just hook into it by registering listeners if not already done.
+  if (_activitySSEBound) return;
+  _activitySSEBound = true;
+
+  // Wait briefly for the SSE source to be initialised by the dashboard
+  var checkInterval = setInterval(function() {
+    if (typeof _sseSource !== 'undefined' && _sseSource && _sseSource.readyState !== undefined) {
+      clearInterval(checkInterval);
+
+      _sseSource.addEventListener('booking_update', _onActivitySSEEvent);
+      _sseSource.addEventListener('new_booking', _onActivitySSEEvent);
+      _sseSource.addEventListener('status_change', _onActivitySSEEvent);
+    }
+  }, 500);
+
+  // Give up after 10 seconds — polling is the fallback
+  setTimeout(function() { clearInterval(checkInterval); }, 10000);
+}
+
+function _onActivitySSEEvent(e) {
+  // If the activity section is currently visible, prepend the new event
+  // by doing a light reload rather than a full page refresh.
+  if (typeof APP !== 'undefined' && APP.currentSection === 'activity') {
+    loadActivity();
+  }
 }
 """
