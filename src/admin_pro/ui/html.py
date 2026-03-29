@@ -81,6 +81,14 @@ HTML_SIDEBAR = """
       <span>Analytics</span>
     </button>
 
+    <button class="ap-nav-item" data-section="market-pricing" onclick="showSection('market-pricing')">
+      <svg class="ap-nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Market Pricing</span>
+    </button>
+
     <div class="ap-nav-section-label">OPERATIONS</div>
 
     <button class="ap-nav-item" data-section="comms" onclick="showSection('comms')">
@@ -706,6 +714,139 @@ HTML_SECTIONS = """
       </div>
     </div>
   </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════ MARKET PRICING ══ -->
+<section class="ap-section" id="section-market-pricing">
+
+  <!-- Price Comparison Chart & Summary -->
+  <div class="ap-card">
+    <div class="ap-card-header">
+      <span class="ap-card-title">Our Prices vs Market Average</span>
+      <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="loadPriceComparison()">Refresh</button>
+    </div>
+    <div style="height:300px; position:relative">
+      <canvas id="price-comparison-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="ap-card" style="margin-top:16px">
+    <div class="ap-card-header">
+      <span class="ap-card-title">Price Comparison Summary</span>
+    </div>
+    <div class="ap-table-wrap">
+      <table class="ap-table">
+        <thead>
+          <tr>
+            <th>Service</th>
+            <th>Our Price</th>
+            <th>Market Avg</th>
+            <th>Market Range</th>
+            <th>Competitors</th>
+            <th>Difference</th>
+          </tr>
+        </thead>
+        <tbody id="comparison-tbody">
+          <tr><td colspan="6" class="ap-table-empty">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Competitors + Forms side by side -->
+  <div class="ap-grid-2" style="margin-top:16px">
+
+    <!-- Add Competitor -->
+    <div class="ap-card">
+      <div class="ap-card-header"><span class="ap-card-title">Add Competitor</span></div>
+      <form onsubmit="addCompetitor(event)" style="display:flex; flex-direction:column; gap:10px; padding:4px 0">
+        <input class="ap-input" name="comp_name" placeholder="Business name *" required>
+        <input class="ap-input" name="comp_website" placeholder="Website URL">
+        <input class="ap-input" name="comp_phone" placeholder="Phone">
+        <input class="ap-input" name="comp_location" placeholder="Location / suburb">
+        <button class="ap-btn ap-btn-primary ap-btn-sm" type="submit">Add Competitor</button>
+      </form>
+    </div>
+
+    <!-- Log Price -->
+    <div class="ap-card">
+      <div class="ap-card-header"><span class="ap-card-title">Log Price</span></div>
+      <form onsubmit="logPrice(event)" style="display:flex; flex-direction:column; gap:10px; padding:4px 0">
+        <select class="ap-input competitor-select" name="price_competitor" required>
+          <option value="">Select competitor...</option>
+        </select>
+        <select class="ap-input" name="price_service" required>
+          <option value="">Select service type...</option>
+          <option value="rim_repair">Wheel Doctor</option>
+          <option value="paint_touchup">Paint Touch-up</option>
+          <option value="multiple_rims">Multiple Rims</option>
+        </select>
+        <div style="display:flex; gap:8px">
+          <input class="ap-input" name="price_low" type="number" step="1" min="0" placeholder="Price low ($)">
+          <input class="ap-input" name="price_high" type="number" step="1" min="0" placeholder="Price high ($)">
+        </div>
+        <select class="ap-input" name="price_source">
+          <option value="">Source...</option>
+          <option value="website">Website</option>
+          <option value="manual">Manual research</option>
+          <option value="phone_inquiry">Phone inquiry</option>
+        </select>
+        <input class="ap-input" name="price_notes" placeholder="Notes (optional)">
+        <button class="ap-btn ap-btn-primary ap-btn-sm" type="submit">Log Price</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Competitors list -->
+  <div class="ap-card" style="margin-top:16px">
+    <div class="ap-card-header">
+      <span class="ap-card-title">Competitors</span>
+      <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="loadCompetitors()">Refresh</button>
+    </div>
+    <div class="ap-table-wrap">
+      <table class="ap-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Website</th>
+            <th>Phone</th>
+            <th>Location</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="competitors-tbody">
+          <tr><td colspan="6" class="ap-table-empty">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent price log -->
+  <div class="ap-card" style="margin-top:16px">
+    <div class="ap-card-header">
+      <span class="ap-card-title">Recent Price Observations</span>
+      <button class="ap-btn ap-btn-ghost ap-btn-sm" onclick="loadPriceLog()">Refresh</button>
+    </div>
+    <div class="ap-table-wrap">
+      <table class="ap-table">
+        <thead>
+          <tr>
+            <th>Competitor</th>
+            <th>Service</th>
+            <th>Price</th>
+            <th>Source</th>
+            <th>Date</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="price-log-tbody">
+          <tr><td colspan="6" class="ap-table-empty">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </section>
 
 <!-- ═══════════════════════════════════════════════ ACTIVITY ══ -->

@@ -1125,6 +1125,15 @@ body.ap-body {
   color: var(--ap-purple);
 }
 
+.ap-badge-muted {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+}
+
+.ap-row-muted td {
+  opacity: 0.5;
+}
+
 .ap-status-dot {
   display: inline-block;
   width: 8px;

@@ -19,8 +19,9 @@ const SECTION_META = {
   calendar:  { title: 'Calendar',        subtitle: 'Schedule view' },
   comms:     { title: 'Communications',  subtitle: 'Email, SMS and queue management' },
   customers: { title: 'Customers',       subtitle: 'Customer profiles and history' },
-  system:    { title: 'System',          subtitle: 'Feature flags and system health' },
-  activity:  { title: 'Activity Feed',   subtitle: 'Audit log and recent events' },
+  system:          { title: 'System',          subtitle: 'Feature flags and system health' },
+  activity:        { title: 'Activity Feed',   subtitle: 'Audit log and recent events' },
+  'market-pricing': { title: 'Market Pricing', subtitle: 'Competitor prices and market position' },
 };
 
 // ── Section Init Map ─────────────────────────────────────────
@@ -31,8 +32,9 @@ const SECTION_INIT = {
   calendar:  () => typeof initCalendar   === 'function' && initCalendar(),
   comms:     () => typeof initComms      === 'function' && initComms(),
   customers: () => typeof initCustomers  === 'function' && initCustomers(),
-  system:    () => typeof initSystem     === 'function' && initSystem(),
-  activity:  () => typeof initActivity   === 'function' && initActivity(),
+  system:          () => typeof initSystem        === 'function' && initSystem(),
+  activity:        () => typeof initActivity      === 'function' && initActivity(),
+  'market-pricing': () => typeof initMarketPricing === 'function' && initMarketPricing(),
 };
 
 // ── Section Navigation ───────────────────────────────────────

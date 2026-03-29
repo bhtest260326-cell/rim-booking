@@ -142,6 +142,32 @@ def _ensure_schema(conn):
             sent_at     TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_msgqueue_status ON message_queue(status, created_at);
+
+        CREATE TABLE IF NOT EXISTS competitors (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            website     TEXT,
+            phone       TEXT,
+            location    TEXT,
+            notes       TEXT,
+            active      INTEGER DEFAULT 1,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS competitor_prices (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            competitor_id   INTEGER NOT NULL,
+            service_type    TEXT NOT NULL,
+            price_low       REAL,
+            price_high      REAL,
+            price_unit      TEXT DEFAULT 'per_rim',
+            source          TEXT,
+            recorded_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            notes           TEXT,
+            FOREIGN KEY (competitor_id) REFERENCES competitors(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_comp_prices_svc ON competitor_prices(service_type);
+        CREATE INDEX IF NOT EXISTS idx_comp_prices_comp ON competitor_prices(competitor_id);
     """)
     conn.commit()
 
@@ -1073,3 +1099,126 @@ class StateManager:
                 count += 1
             conn.commit()
         return count
+
+    # ------------------------------------------------------------------
+    # Competitor Price Monitoring
+    # ------------------------------------------------------------------
+
+    def add_competitor(self, name: str, website: str = None,
+                       phone: str = None, location: str = None) -> int:
+        """Add a competitor. Returns the new competitor id."""
+        with _get_conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO competitors(name, website, phone, location) VALUES (?, ?, ?, ?)",
+                (name, website, phone, location)
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def get_competitors(self, active_only: bool = True) -> list:
+        """Return all competitors, optionally filtered to active only."""
+        with _get_conn() as conn:
+            if active_only:
+                rows = conn.execute(
+                    "SELECT * FROM competitors WHERE active=1 ORDER BY name"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM competitors ORDER BY name"
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_competitor(self, competitor_id: int, **fields) -> bool:
+        """Update competitor fields. Returns True if a row was updated."""
+        allowed = {'name', 'website', 'phone', 'location', 'notes', 'active'}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        set_clause = ', '.join(f'{k}=?' for k in updates)
+        values = list(updates.values()) + [competitor_id]
+        with _get_conn() as conn:
+            cur = conn.execute(
+                f"UPDATE competitors SET {set_clause} WHERE id=?", values
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def add_competitor_price(self, competitor_id: int, service_type: str,
+                             price_low: float = None, price_high: float = None,
+                             source: str = None, notes: str = None) -> int:
+        """Record a price observation. Returns the new price record id."""
+        with _get_conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO competitor_prices
+                   (competitor_id, service_type, price_low, price_high, source, notes)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (competitor_id, service_type, price_low, price_high, source, notes)
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def get_competitor_prices(self, service_type: str = None,
+                              competitor_id: int = None) -> list:
+        """Return price observations with optional filters."""
+        sql = """SELECT cp.*, c.name AS competitor_name
+                 FROM competitor_prices cp
+                 JOIN competitors c ON c.id = cp.competitor_id
+                 WHERE 1=1"""
+        params = []
+        if service_type:
+            sql += " AND cp.service_type=?"
+            params.append(service_type)
+        if competitor_id:
+            sql += " AND cp.competitor_id=?"
+            params.append(competitor_id)
+        sql += " ORDER BY cp.recorded_at DESC"
+        with _get_conn() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_price_comparison(self, service_type: str = None) -> list:
+        """Return our price vs competitors' average/min/max per service type.
+
+        Uses only the latest price entry per competitor per service type.
+        """
+        from admin_pro.api.analytics import PRICING, SERVICE_LABELS
+
+        sql = """
+            SELECT cp.service_type,
+                   AVG((COALESCE(cp.price_low,0) + COALESCE(cp.price_high,0)) / 2.0) AS avg_price,
+                   MIN(cp.price_low) AS min_price,
+                   MAX(cp.price_high) AS max_price,
+                   COUNT(DISTINCT cp.competitor_id) AS num_competitors
+            FROM competitor_prices cp
+            JOIN (
+                SELECT competitor_id, service_type, MAX(recorded_at) AS max_recorded
+                FROM competitor_prices
+                GROUP BY competitor_id, service_type
+            ) latest ON cp.competitor_id = latest.competitor_id
+                    AND cp.service_type = latest.service_type
+                    AND cp.recorded_at = latest.max_recorded
+            JOIN competitors c ON c.id = cp.competitor_id AND c.active = 1
+        """
+        params = []
+        if service_type:
+            sql += " WHERE cp.service_type = ?"
+            params.append(service_type)
+        sql += " GROUP BY cp.service_type"
+
+        with _get_conn() as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        result = []
+        for row in rows:
+            svc = row['service_type']
+            our_price = PRICING.get(svc)
+            result.append({
+                'service_type': svc,
+                'service_label': SERVICE_LABELS.get(svc, svc),
+                'our_price': our_price,
+                'market_avg': round(row['avg_price'], 2) if row['avg_price'] else None,
+                'market_min': row['min_price'],
+                'market_max': row['max_price'],
+                'num_competitors': row['num_competitors'],
+            })
+        return result
