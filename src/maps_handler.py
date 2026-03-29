@@ -72,9 +72,26 @@ _WA_PUBLIC_HOLIDAYS: set = {
 }
 
 
+def _get_holidays() -> set:
+    """Return WA public holidays, merging DB overrides with hardcoded defaults.
+
+    The holidays table in the DB (if populated) takes priority and allows
+    adding/removing holidays without redeployment. Falls back to the
+    hardcoded _WA_PUBLIC_HOLIDAYS set when the DB has no entries.
+    """
+    try:
+        from state_manager import StateManager
+        db_holidays = StateManager().get_db_holidays()
+        if db_holidays:
+            return db_holidays | _WA_PUBLIC_HOLIDAYS
+    except Exception:
+        pass
+    return _WA_PUBLIC_HOLIDAYS
+
+
 def _is_business_day(d: _dt_mod.date) -> bool:
     """Return True if d is a weekday that is not a WA public holiday."""
-    return d.weekday() < 5 and d not in _WA_PUBLIC_HOLIDAYS
+    return d.weekday() < 5 and d not in _get_holidays()
 
 
 def _ceil_15(dt):

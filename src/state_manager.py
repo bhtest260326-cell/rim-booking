@@ -142,6 +142,19 @@ def _ensure_schema(conn):
             sent_at     TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_msgqueue_status ON message_queue(status, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_customer_email ON bookings(customer_email);
+
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version     INTEGER PRIMARY KEY,
+            applied_at  TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS holidays (
+            date        TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            region      TEXT NOT NULL DEFAULT 'WA'
+        );
     """)
     conn.commit()
 
@@ -168,6 +181,52 @@ def _ensure_schema(conn):
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clarifications_thread_unique ON clarifications(thread_id)")
     except Exception as _e:
         logger.debug("idx_clarifications_thread_unique not created (may already exist): %s", _e)
+
+    # Run numbered schema migrations
+    _run_schema_migrations(conn)
+
+
+# ---------------------------------------------------------------------------
+# Schema versioning / migrations
+# ---------------------------------------------------------------------------
+
+# Each migration is a (version, description, sql_list) tuple.
+# Migrations are applied in order and only once. Version 1 represents the
+# baseline schema created by _ensure_schema above.
+_SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    (1, 'baseline schema', []),
+    # Future migrations go here, e.g.:
+    # (2, 'add foo column', ["ALTER TABLE bookings ADD COLUMN foo TEXT"]),
+]
+
+
+def _get_schema_version(conn) -> int:
+    """Return the current schema version, or 0 if no migrations have been applied."""
+    try:
+        row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
+        return row['v'] if row and row['v'] is not None else 0
+    except Exception:
+        return 0
+
+
+def _run_schema_migrations(conn) -> None:
+    """Apply any pending schema migrations."""
+    current = _get_schema_version(conn)
+    for version, description, sql_list in _SCHEMA_MIGRATIONS:
+        if version <= current:
+            continue
+        try:
+            for sql in sql_list:
+                conn.execute(sql)
+            conn.execute(
+                "INSERT INTO schema_version(version, applied_at) VALUES (?, ?)",
+                (version, datetime.now(timezone.utc).isoformat())
+            )
+            conn.commit()
+            logger.info("Applied schema migration v%d: %s", version, description)
+        except Exception as e:
+            logger.error("Schema migration v%d failed: %s", version, e)
+            raise
 
 
 def _migrate_from_json(conn):
@@ -305,10 +364,13 @@ def _check_time_conflict(conn, preferred_date: str, preferred_time: str,
 
 
 VALID_TRANSITIONS = {
-    'awaiting_owner': {'confirmed', 'declined'},
-    'confirmed': {'cancelled'},
+    'awaiting_owner': {'confirmed', 'declined', 'expired', 'cancelled'},
+    'confirmed': {'cancelled', 'completed', 'rescheduled'},
     'declined': set(),
     'cancelled': set(),
+    'completed': set(),
+    'expired': set(),
+    'rescheduled': set(),
 }
 
 
@@ -471,6 +533,66 @@ class StateManager:
                 logger.warning(f"decline_booking: {pending_id} not in awaiting_owner state")
                 return False
         self.log_booking_event(pending_id, 'declined', actor='system')
+        return True
+
+    def complete_booking(self, booking_id: str) -> bool:
+        """Mark a confirmed booking as completed."""
+        with self._conn() as conn:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT id, status FROM bookings WHERE id=?", (booking_id,)
+                ).fetchone()
+                if not row:
+                    conn.execute("ROLLBACK")
+                    return False
+                self._assert_transition(row['status'], 'completed')
+                result = conn.execute(
+                    "UPDATE bookings SET status='completed' WHERE id=?",
+                    (booking_id,)
+                )
+                if result.rowcount == 0:
+                    conn.execute("ROLLBACK")
+                    return False
+                conn.execute("COMMIT")
+            except Exception:
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
+        self.log_booking_event(booking_id, 'completed', actor='system')
+        logger.info("Booking %s marked as completed", booking_id)
+        return True
+
+    def expire_booking(self, booking_id: str) -> bool:
+        """Mark an awaiting_owner booking as expired (no owner response in time)."""
+        with self._conn() as conn:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT id, status FROM bookings WHERE id=?", (booking_id,)
+                ).fetchone()
+                if not row:
+                    conn.execute("ROLLBACK")
+                    return False
+                self._assert_transition(row['status'], 'expired')
+                result = conn.execute(
+                    "UPDATE bookings SET status='expired' WHERE id=?",
+                    (booking_id,)
+                )
+                if result.rowcount == 0:
+                    conn.execute("ROLLBACK")
+                    return False
+                conn.execute("COMMIT")
+            except Exception:
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
+        self.log_booking_event(booking_id, 'expired', actor='scheduler')
+        logger.info("Booking %s marked as expired", booking_id)
         return True
 
     def update_confirmed_booking_data(self, booking_id, booking_data):
@@ -966,6 +1088,22 @@ class StateManager:
     # ------------------------------------------------------------------
     # Internal conversion
     # ------------------------------------------------------------------
+
+    def get_db_holidays(self) -> set:
+        """Return a set of datetime.date objects from the holidays table."""
+        import datetime as _dt
+        result = set()
+        try:
+            with self._conn() as conn:
+                rows = conn.execute("SELECT date FROM holidays").fetchall()
+            for row in rows:
+                try:
+                    result.add(_dt.date.fromisoformat(row['date']))
+                except (ValueError, TypeError):
+                    pass
+        except Exception as e:
+            logger.debug("get_db_holidays failed (table may not exist): %s", e)
+        return result
 
     def _booking_row_to_dict(self, row):
         if not row:

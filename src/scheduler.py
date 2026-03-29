@@ -624,10 +624,13 @@ def send_post_job_review_requests():
 
 
 def check_pending_booking_expiry():
-    """Nudge the owner via SMS for any pending booking older than 48 hours with no response."""
+    """Nudge the owner for pending bookings >48h, then expire them after 72h.
+
+    Two-stage process:
+    1. At 48h: send an SMS nudge to the owner (existing behaviour).
+    2. At 72h: expire the booking and notify the owner via SMS.
+    """
     state = StateManager()
-    # Use all awaiting_owner bookings — not just those with calendar events (calendar is only
-    # used as a fallback when SMS is unavailable; most bookings go via SMS with no calendar event)
     with state._conn() as conn:
         rows = conn.execute(
             "SELECT * FROM bookings WHERE status='awaiting_owner' ORDER BY created_at ASC"
@@ -637,12 +640,10 @@ def check_pending_booking_expiry():
         return
 
     now_utc = datetime.now(timezone.utc)
+    owner_mobile = os.environ.get('OWNER_MOBILE', '')
 
     for booking in pending:
         booking_id = booking['id']
-
-        if state.has_reminder_been_sent(booking_id, 'expiry_nudge'):
-            continue
 
         created_at_str = booking.get('created_at')
         if not created_at_str:
@@ -650,7 +651,6 @@ def check_pending_booking_expiry():
 
         try:
             created_at = datetime.fromisoformat(created_at_str)
-            # Ensure timezone-aware for comparison
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=timezone.utc)
         except Exception as e:
@@ -658,30 +658,44 @@ def check_pending_booking_expiry():
             continue
 
         age = now_utc - created_at
-        if age < timedelta(hours=48):
-            continue
-
         booking_data = booking.get('booking_data', {})
         customer_name = booking_data.get('customer_name', 'Unknown')
         preferred_date = booking_data.get('preferred_date', 'unknown date')
 
-        msg = (
-            f"Reminder: Booking {booking_id} for {customer_name} on {_fmt_date(preferred_date)} "
-            f"still needs your YES or NO. "
-            f"Reply YES {booking_id} or NO {booking_id}"
-        )
+        # Stage 2: expire bookings older than 72h that already received a nudge
+        if age >= timedelta(hours=72) and state.has_reminder_been_sent(booking_id, 'expiry_nudge'):
+            try:
+                expired = state.expire_booking(booking_id)
+                if expired and owner_mobile:
+                    msg = (
+                        f"Booking {booking_id} for {customer_name} on {_fmt_date(preferred_date)} "
+                        f"has EXPIRED (no response after 72h). "
+                        f"The customer has not been notified. - Wheel Doctor System"
+                    )
+                    send_sms(owner_mobile, msg)
+                    logger.info("Booking %s expired and owner notified", booking_id)
+            except Exception as e:
+                logger.error("Failed to expire booking %s: %s", booking_id, e)
+            continue
 
-        owner_mobile = os.environ.get('OWNER_MOBILE', '')
-        if not owner_mobile:
-            logger.warning("OWNER_MOBILE not configured, skipping expiry nudge SMS")
-            return
+        # Stage 1: nudge at 48h
+        if age >= timedelta(hours=48) and not state.has_reminder_been_sent(booking_id, 'expiry_nudge'):
+            if not owner_mobile:
+                logger.warning("OWNER_MOBILE not configured, skipping expiry nudge SMS")
+                return
 
-        try:
-            send_sms(owner_mobile, msg)
-            state.mark_reminder_sent(booking_id, 'expiry_nudge')
-            logger.info(f"Expiry nudge sent for booking {booking_id} (age: {age})")
-        except Exception as e:
-            logger.error(f"Failed to send expiry nudge for {booking_id}: {e}")
+            msg = (
+                f"Reminder: Booking {booking_id} for {customer_name} on {_fmt_date(preferred_date)} "
+                f"still needs your YES or NO. "
+                f"Reply YES {booking_id} or NO {booking_id}"
+            )
+
+            try:
+                send_sms(owner_mobile, msg)
+                state.mark_reminder_sent(booking_id, 'expiry_nudge')
+                logger.info("Expiry nudge sent for booking %s (age: %s)", booking_id, age)
+            except Exception as e:
+                logger.error("Failed to send expiry nudge for %s: %s", booking_id, e)
 
 
 def send_owner_daily_briefing():
