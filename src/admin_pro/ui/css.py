@@ -699,6 +699,11 @@ body.ap-body {
   color: var(--ap-text-muted);
 }
 
+/* Mobile search toggle — hidden on desktop */
+.ap-search-mobile-toggle {
+  display: none;
+}
+
 /* --- Page Content ------------------------------------------ */
 .ap-content {
   padding: 24px;
@@ -3011,7 +3016,42 @@ body.ap-body {
     grid-template-columns: 1fr;
   }
 
-  .ap-search-wrap { display: none; }
+  /* Mobile search: show as compact icon that expands */
+  .ap-search-wrap {
+    display: flex;
+    position: relative;
+  }
+  .ap-search-input {
+    width: 0;
+    padding: 7px 0;
+    border: none;
+    opacity: 0;
+    transition: width 300ms ease, opacity 200ms ease, padding 200ms ease, border 200ms ease;
+  }
+  .ap-search-wrap.mobile-expanded .ap-search-input {
+    width: calc(100vw - 140px);
+    max-width: 320px;
+    padding: 7px 12px 7px 34px;
+    border: 1px solid var(--ap-border);
+    opacity: 1;
+  }
+  .ap-search-mobile-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: transparent;
+    border: 1px solid var(--ap-border);
+    border-radius: var(--ap-radius-sm);
+    color: var(--ap-text-dim);
+    cursor: pointer;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .ap-search-wrap.mobile-expanded .ap-search-mobile-toggle {
+    display: none;
+  }
 
   .ap-topbar {
     gap: 10px;

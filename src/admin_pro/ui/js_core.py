@@ -503,6 +503,19 @@ function clearSearch() {
     searchInput.dispatchEvent(new Event('input'));
   }
   if (clearBtn) clearBtn.style.display = 'none';
+  // Collapse mobile search if open
+  const wrap = document.getElementById('ap-search-wrap');
+  if (wrap) wrap.classList.remove('mobile-expanded');
+}
+
+function toggleMobileSearch() {
+  const wrap = document.getElementById('ap-search-wrap');
+  if (!wrap) return;
+  const expanded = wrap.classList.toggle('mobile-expanded');
+  if (expanded) {
+    const input = document.getElementById('ap-global-search');
+    if (input) setTimeout(function() { input.focus(); }, 100);
+  }
 }
 
 // ── Notifications Bell ───────────────────────────────────────

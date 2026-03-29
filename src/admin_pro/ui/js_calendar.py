@@ -12,7 +12,25 @@ const CAL_STATE = {
   bookings: [],              // flat array of all bookings from API
   bookingsByDate: {},        // { 'YYYY-MM-DD': [booking, ...] }
   dragData: null,
+  userTimezone: (function() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+    catch(e) { return 'UTC'; }
+  })(),
 };
+
+// Timezone display helper — returns short abbreviation like "AWST", "AEST", etc.
+function _calGetTimezoneAbbr() {
+  try {
+    var fmt = new Intl.DateTimeFormat('en-AU', { timeZoneName: 'short', timeZone: CAL_STATE.userTimezone });
+    var parts = fmt.formatToParts(new Date());
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].type === 'timeZoneName') return parts[i].value;
+    }
+    return CAL_STATE.userTimezone;
+  } catch(e) {
+    return CAL_STATE.userTimezone;
+  }
+}
 
 // ── Constants ────────────────────────────────────────────────
 const CAL_SLOT_HEIGHT = 28;
@@ -90,10 +108,11 @@ async function loadCalendarData() {
   var dateFrom = _calDateStr(days[0]);
   var dateTo = _calDateStr(days[4]);
 
+  var tzParam = '&tz=' + encodeURIComponent(CAL_STATE.userTimezone);
   var fetches = [
-    apiFetch('/v2/api/bookings?status=confirmed&date_from=' + dateFrom + '&date_to=' + dateTo + '&per_page=200'),
-    apiFetch('/v2/api/bookings?status=awaiting_owner&date_from=' + dateFrom + '&date_to=' + dateTo + '&per_page=200'),
-    apiFetch('/v2/api/bookings?status=awaiting_owner&per_page=200'),
+    apiFetch('/v2/api/bookings?status=confirmed&date_from=' + dateFrom + '&date_to=' + dateTo + '&per_page=200' + tzParam),
+    apiFetch('/v2/api/bookings?status=awaiting_owner&date_from=' + dateFrom + '&date_to=' + dateTo + '&per_page=200' + tzParam),
+    apiFetch('/v2/api/bookings?status=awaiting_owner&per_page=200' + tzParam),
   ];
 
   var results = await Promise.allSettled(fetches);
@@ -415,6 +434,7 @@ function renderCalendar() {
   html += '<span class="cal-nav-label">' + headerLabel + '</span>';
   html += '<button class="cal-nav-btn" onclick="calNavWeek(1)" title="Next week">&#9654;</button>';
   html += '<button class="cal-nav-today-btn" onclick="calGoToday()">Today</button>';
+  html += '<span class="cal-tz-indicator">Times shown in ' + _calGetTimezoneAbbr() + '</span>';
   html += '</div>';
 
   // Update the static title element if it exists
@@ -427,7 +447,8 @@ function renderCalendar() {
   if (weekBtn) weekBtn.classList.add('active');
   if (monthBtn) monthBtn.classList.remove('active');
 
-  // ── Week grid wrapper
+  // ── Week grid wrapper (scroll outer for mobile horizontal scroll)
+  html += '<div class="cal-week-scroll-outer">';
   html += '<div class="cal-week-wrapper">';
 
   // ── Time gutter (left column)
@@ -516,6 +537,7 @@ function renderCalendar() {
   });
 
   html += '</div>'; // .cal-week-wrapper
+  html += '</div>'; // .cal-week-scroll-outer
 
   container.innerHTML = html;
 }
@@ -749,7 +771,7 @@ async function calDrop(event, targetDate) {
 }
 
 async function calMoveBooking(bookingId, newDate, newTime, oldDate, oldTime) {
-  var payload = { preferred_date: newDate, preferred_time: newTime };
+  var payload = { preferred_date: newDate, preferred_time: newTime, tz: CAL_STATE.userTimezone };
 
   try {
     await apiFetch('/v2/api/bookings/' + bookingId + '/edit', {
@@ -1244,17 +1266,85 @@ function _calGetStyles() {
     'box-shadow: 0 2px 8px rgba(0,0,0,0.08);' +
   '}' +
 
-  // Responsive
+  // Timezone indicator
+  '.cal-tz-indicator {' +
+    'font-size: 11px;' +
+    'color: var(--ap-text-muted, #64748b);' +
+    'margin-left: 8px;' +
+    'font-weight: 400;' +
+    'white-space: nowrap;' +
+  '}' +
+
+  // Responsive — tablet and mobile (< 768px)
   '@media (max-width: 768px) {' +
+    // Calendar week wrapper: enable horizontal scroll for week view
+    '.cal-week-scroll-outer {' +
+      'overflow-x: auto;' +
+      '-webkit-overflow-scrolling: touch;' +
+      'margin: 0 -14px;' +
+      'padding: 0 14px;' +
+    '}' +
     '.cal-week-wrapper {' +
-      'grid-template-columns: 48px repeat(5, 1fr);' +
+      'grid-template-columns: 44px repeat(5, minmax(120px, 1fr));' +
+      'min-width: 660px;' +
       'font-size: 11px;' +
     '}' +
     '.cal-time-label { font-size: 9px; }' +
-    '.cal-day-header { font-size: 11px; }' +
-    '.cal-booking-card { font-size: 10px; padding: 2px 3px; }' +
-    '.cal-nav-header { flex-wrap: wrap; }' +
-    '.cal-nav-label { font-size: 13px; }' +
+    '.cal-day-header {' +
+      'font-size: 11px;' +
+      'height: 36px;' +
+      'min-height: 36px;' +
+    '}' +
+    '.cal-gutter-header { height: 36px; }' +
+    // Booking cards: readable on small screens
+    '.cal-booking-card {' +
+      'font-size: 10px;' +
+      'padding: 2px 4px;' +
+      'border-left-width: 2px;' +
+    '}' +
+    '.cal-card-time { font-size: 10px; }' +
+    '.cal-card-name {' +
+      'font-size: 10px;' +
+      'max-width: 100%;' +
+      'overflow: hidden;' +
+      'text-overflow: ellipsis;' +
+    '}' +
+    '.cal-card-info { font-size: 9px; }' +
+    '.cal-card-actions { gap: 2px; margin-top: 1px; }' +
+    '.cal-action-btn { font-size: 9px; padding: 1px 4px; }' +
+    // Navigation header: wrap and center
+    '.cal-nav-header {' +
+      'flex-wrap: wrap;' +
+      'gap: 8px;' +
+      'justify-content: center;' +
+      'padding: 8px 0;' +
+    '}' +
+    '.cal-nav-label { font-size: 13px; order: -1; width: 100%; text-align: center; }' +
+    '.cal-nav-btn { padding: 6px 10px; font-size: 13px; }' +
+    '.cal-nav-today-btn { padding: 6px 12px; font-size: 12px; }' +
+    '.cal-tz-indicator { width: 100%; text-align: center; margin-left: 0; font-size: 10px; }' +
+    // Day detail panel
+    '.ap-day-booking-item { padding: 6px 8px; }' +
+    // Pending panel cards
+    '.ap-pending-card { padding: 8px; }' +
+    '.pending-name { font-size: 12px; }' +
+    '.pending-meta { font-size: 11px; }' +
+  '}' +
+
+  // Small phones (< 480px)
+  '@media (max-width: 480px) {' +
+    '.cal-week-wrapper {' +
+      'grid-template-columns: 36px repeat(5, minmax(100px, 1fr));' +
+      'min-width: 560px;' +
+    '}' +
+    '.cal-time-label { font-size: 8px; right: 2px; }' +
+    '.cal-day-header { font-size: 10px; height: 32px; min-height: 32px; }' +
+    '.cal-gutter-header { height: 32px; }' +
+    '.cal-booking-card { font-size: 9px; padding: 1px 3px; }' +
+    '.cal-card-name { font-size: 9px; }' +
+    '.cal-card-info { display: none; }' +
+    '.cal-card-actions { flex-wrap: wrap; }' +
+    '.cal-nav-label { font-size: 12px; }' +
   '}' +
   '';
 }
