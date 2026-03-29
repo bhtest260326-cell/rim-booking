@@ -63,5 +63,9 @@ htmlcov/
 # === ASSETS ===
 Banner.jpg
 
+# === OFFICE TEMP FILES ===
+~$*
+
 # === CLAUDE ===
 .claude/settings.local.json
+.claude/worktrees/
