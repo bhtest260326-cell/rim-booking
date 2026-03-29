@@ -41,7 +41,7 @@ _TASK_INTERVALS = {
     'send_day_prior_reminders':     600,   # every 10 min
     'send_post_job_review_requests': 600,  # every 10 min
     'send_maintenance_reminders':   3600,  # every hour
-    'check_dlq_for_escalation':     1800,  # every 30 min
+    'check_dlq_for_escalation':     300,   # every 5 min
     'send_preflight_schedule_report': 300, # every 5 min (idempotent via date key)
     'send_owner_daily_briefing':    300,   # every 5 min (idempotent via date key)
     'check_pending_booking_expiry': 600,   # every 10 min
@@ -435,6 +435,11 @@ def send_morning_job_notifications():
 
     state = StateManager()
     today = now.strftime('%Y-%m-%d')
+
+    last = state.get_app_state('last_morning_notifications_date')
+    if last == today:
+        return
+
     confirmed = state.get_confirmed_bookings()
 
     for booking_id, booking in confirmed.items():
@@ -455,6 +460,8 @@ def send_morning_job_notifications():
         _send_morning_email(customer_email, booking_data, thread_id=booking.get('thread_id'))
         state.mark_reminder_sent(booking_id, 'morning_notification')
         logger.info(f"Morning notification sent for booking {booking_id}")
+
+    state.set_app_state('last_morning_notifications_date', today)
 
 def _time_window(time_str, duration_minutes=120):
     """Convert HH:MM + duration to a friendly arrival window string, e.g. '10:00am – 12:00pm'."""
