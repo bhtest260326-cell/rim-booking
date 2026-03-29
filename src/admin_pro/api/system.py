@@ -213,6 +213,42 @@ def register(bp, require_auth):
     # GET /api/system/waitlist
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # GET /api/system/backup-status
+    # ------------------------------------------------------------------
+
+    @bp.route("/api/system/backup-status", methods=["GET"])
+    @require_auth
+    def backup_status():
+        """Return the current backup status from app_state."""
+        try:
+            from backup_handler import get_backup_status
+            status = get_backup_status()
+            return jsonify(status)
+        except Exception:
+            logger.exception("Error fetching backup status")
+            return jsonify({"error": "Internal server error"}), 500
+
+    # ------------------------------------------------------------------
+    # POST /api/system/backup-now
+    # ------------------------------------------------------------------
+
+    @bp.route("/api/system/backup-now", methods=["POST"])
+    @require_auth
+    def backup_now():
+        """Trigger an immediate backup to Google Drive."""
+        try:
+            from backup_handler import backup_database_to_drive
+            result = backup_database_to_drive()
+            return jsonify(result)
+        except Exception:
+            logger.exception("Error triggering backup")
+            return jsonify({"ok": False, "error": "Internal server error"}), 500
+
+    # ------------------------------------------------------------------
+    # GET /api/system/waitlist
+    # ------------------------------------------------------------------
+
     @bp.route('/api/system/waitlist', methods=['GET'])
     @require_auth
     def get_waitlist():

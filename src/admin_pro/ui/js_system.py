@@ -7,6 +7,7 @@ async function initSystem() {
     loadSystemHealth(),
     loadFeatureFlags(),
     loadDbStats(),
+    loadBackupStatus(),
   ]);
 }
 
@@ -158,8 +159,41 @@ async function vacuumDb() {
   } catch(e) { showToast('Vacuum failed: ' + e.message, 'error'); }
 }
 
-function exportDb() {
-  showToast('Feature coming soon.', 'info');
+async function exportDb() {
+  if (!confirm('Trigger a database backup to Google Drive now?')) return;
+  try {
+    showToast('Starting backup...', 'info', 3000);
+    const result = await apiFetch('/api/system/backup-now', {method: 'POST'});
+    if (result.ok) {
+      const sizeMb = (result.size_bytes / 1048576).toFixed(2);
+      showToast('Backup complete (' + sizeMb + ' MB). ' + result.backups_retained + ' backups retained.', 'success', 6000);
+    } else {
+      showToast('Backup failed: ' + (result.error || 'Unknown error'), 'error');
+    }
+  } catch(e) {
+    showToast('Backup failed: ' + e.message, 'error');
+  }
+}
+
+// ── Backup Status ───────────────────────────────────────────────────────────
+
+async function loadBackupStatus() {
+  try {
+    const data = await apiFetch('/api/system/backup-status');
+    const el = document.getElementById('backup-status');
+    if (!el) return;
+    if (data.last_drive_backup_date) {
+      const sizeMb = data.last_drive_backup_size ? (data.last_drive_backup_size / 1048576).toFixed(2) + ' MB' : '—';
+      el.innerHTML = '<span class="ap-text-dim">Last backup:</span> ' +
+        escapeHtml(data.last_drive_backup_date) + ' at ' + escapeHtml(data.last_drive_backup_time || '—') +
+        ' <span class="ap-text-dim">(' + sizeMb + ')</span>';
+    } else {
+      el.innerHTML = '<span class="ap-text-muted">No backups yet</span>';
+    }
+  } catch(e) {
+    const el = document.getElementById('backup-status');
+    if (el) el.innerHTML = '<span class="ap-text-muted">Could not load backup status</span>';
+  }
 }
 
 // ── App State Viewer ─────────────────────────────────────────────────────────

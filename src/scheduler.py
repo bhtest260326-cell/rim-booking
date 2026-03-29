@@ -46,6 +46,7 @@ _TASK_INTERVALS = {
     'send_owner_daily_briefing':    300,   # every 5 min (idempotent via date key)
     'check_pending_booking_expiry': 600,   # every 10 min
     'backup_database_to_email':     86400, # daily (also gated by date key)
+    'backup_database_to_drive':     86400, # daily (also gated by hour)
     'run_db_cleanup':               604800, # weekly (7 days)
     'check_waitlist_opportunities': 3600,  # every hour
     'drain_message_queue':          60,    # every minute (Upgrade 5)
@@ -153,6 +154,21 @@ def run_scheduled_tasks():
         except Exception as e:
             logger.error(f"backup_database_to_email error: {e}", exc_info=True)
         _mark_ran('backup_database_to_email')
+
+    if _should_run('backup_database_to_drive'):
+        try:
+            now = _perth_now()
+            if now.hour == 3:  # 3am Perth time — after email backup at 2am
+                from backup_handler import backup_database_to_drive
+                result = backup_database_to_drive()
+                if result.get('ok'):
+                    logger.info("Drive backup completed: %s bytes, %s backups retained",
+                               result.get('size_bytes'), result.get('backups_retained'))
+                else:
+                    logger.warning("Drive backup failed: %s", result.get('error'))
+        except Exception as e:
+            logger.error("backup_database_to_drive error: %s", e, exc_info=True)
+        _mark_ran('backup_database_to_drive')
 
     if _should_run('run_db_cleanup'):
         try:
