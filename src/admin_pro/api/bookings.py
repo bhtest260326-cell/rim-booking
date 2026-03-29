@@ -282,6 +282,16 @@ def register(bp, require_auth):
                 ).fetchall()
 
             booking['events'] = [_event_row_to_dict(e) for e in event_rows]
+
+            # Attach latest quote if available
+            try:
+                from quoting_engine import get_quote_for_booking
+                quote = get_quote_for_booking(booking_id)
+                if quote:
+                    booking['_quote'] = quote
+            except Exception:
+                pass  # quotes table may not exist yet
+
             return jsonify({'ok': True, 'booking': booking})
 
         except Exception:

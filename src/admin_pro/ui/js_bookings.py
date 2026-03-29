@@ -232,7 +232,7 @@ function renderBookingsTable(bookings) {
       \'  <td class="ap-td">\' + serviceCell + \'</td>\',
       \'  <td class="ap-td ap-td--date">\' + dateCell + \'</td>\',
       \'  <td class="ap-td ap-td--addr">\' + addrCell + \'</td>\',
-      \'  <td class="ap-td">\' + statusBadge(b.status) + \'</td>\',
+      \'  <td class="ap-td">\' + statusBadge(b.status) + severityBadge(bd.image_assessment) + \'</td>\',
       \'  <td class="ap-td ap-td--created"><small>\' + createdAt + \'</small></td>\',
       \'  <td class="ap-td ap-td--actions">\' + confirmBtn + declineBtn + editBtn + eventsBtn + \'</td>\',
       \'</tr>\',
@@ -521,6 +521,12 @@ async function openBookingDetail(bookingId) {
 
       renderImageAssessment(bd.image_assessment),
 
+      // ── Quote Section ──
+      renderQuoteSection(bookingId, booking._quote),
+
+      // ── Damage Scoring Upload ──
+      renderDamageScorerUpload(bookingId),
+
       // ── Pending Change Notification ──
       (bd.moved_pending_notification ? [
         \'<div class="ap-bd-sep"></div>\',
@@ -546,14 +552,17 @@ async function openBookingDetail(bookingId) {
       ? \'<button class="ap-notify-btn-lg" onclick="calNotifyCustomer(\\'\' + bookingId + \'\\')">📧 Notify Customer of Change</button>\'
       : \'\';
 
+    const quoteBtn = \'<button class="ap-btn ap-btn-ghost" onclick="generateQuoteForBooking(\\'\' + bookingId + \'\\')">&#128176; Generate Quote</button>\';
+
     const footer = (booking.status === \'awaiting_owner\')
       ? [
           \'<button class="ap-btn ap-btn-success" onclick="confirmBookingFromModal(\\'\' + bookingId + \'\\')">&#10003; Confirm</button>\',
           \'<button class="ap-btn ap-btn-danger" onclick="openDeclineModal(\\'\' + bookingId + \'\\')">&#10007; Decline</button>\',
           \'<button class="ap-btn ap-btn-ghost" onclick="openEditModal(\\'\' + bookingId + \'\\')">&#9998; Edit</button>\',
+          quoteBtn,
           notifyBtn,
         ].join(\'\')
-      : \'<button class="ap-btn ap-btn-ghost" onclick="openEditModal(\\'\' + bookingId + \'\\')">&#9998; Edit</button>\' + notifyBtn;
+      : \'<button class="ap-btn ap-btn-ghost" onclick="openEditModal(\\'\' + bookingId + \'\\')">&#9998; Edit</button>\' + quoteBtn + notifyBtn;
 
     const shortId = bookingId.substring(0, 8).toUpperCase();
     showModal(
@@ -859,5 +868,200 @@ async function calNotifyCustomer(bookingId) {
   } catch (err) {
     showToast('Failed to send notification: ' + err.message, 'error');
   }
+}
+
+// ── Severity Badge (for booking table rows) ─────────────────
+function severityBadge(assessment) {
+  if (!assessment || !assessment.damage_level || assessment.damage_level === 'not_visible') return '';
+  var lvl = (assessment.damage_level || '').toLowerCase();
+  var colours = {
+    minor:    { bg: '#dcfce7', text: '#166534' },
+    moderate: { bg: '#fef3c7', text: '#92400e' },
+    severe:   { bg: '#fecaca', text: '#991b1b' },
+  };
+  var c = colours[lvl] || { bg: '#e2e8f0', text: '#334155' };
+  return ' <span style="display:inline-block;font-size:0.7rem;padding:1px 6px;border-radius:4px;' +
+    'background:' + c.bg + ';color:' + c.text + ';margin-left:4px;vertical-align:middle;">' +
+    escapeHtml(lvl) + '</span>';
+}
+
+// ── Quote Section (in booking detail) ───────────────────────
+function renderQuoteSection(bookingId, quote) {
+  var parts = [
+    '<div class="ap-bd-sep"></div>',
+    '<div class="ap-detail-heading">Quote</div>',
+  ];
+
+  if (!quote) {
+    parts.push(
+      '<div class="ap-muted" id="quote-display-' + bookingId + '">',
+      '  <p style="opacity:.5">No quote generated yet.</p>',
+      '  <button class="ap-btn ap-btn-ghost ap-btn--sm" onclick="generateQuoteForBooking(\\'' + bookingId + '\\')">Generate Quote</button>',
+      '</div>'
+    );
+    return parts.join('');
+  }
+
+  parts.push(
+    '<div id="quote-display-' + bookingId + '" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px 14px;font-size:0.85rem;">',
+    '  <div style="display:flex;gap:16px;align-items:center;margin-bottom:6px;">',
+    '    <span style="font-weight:700;font-size:1.1rem;color:#0369a1;">$' + quote.estimate_low + ' – $' + quote.estimate_high + '</span>',
+    '    <span style="color:var(--ap-text-muted);font-size:0.78rem;">Confidence: ' + Math.round((quote.confidence || 0) * 100) + '%</span>',
+    '  </div>'
+  );
+
+  // Breakdown
+  if (quote.breakdown && quote.breakdown.length > 0) {
+    quote.breakdown.forEach(function(item) {
+      parts.push(
+        '<div style="font-size:0.8rem;color:var(--ap-text-muted);">' +
+        escapeHtml(item.item || item.label || 'Service') + ': $' + item.per_rim_low + '–$' + item.per_rim_high +
+        ' x ' + (item.quantity || 1) + ' rim(s)</div>'
+      );
+    });
+  }
+
+  // Adjustments
+  if (quote.adjustments && quote.adjustments.length > 0) {
+    quote.adjustments.forEach(function(adj) {
+      parts.push('<div style="font-size:0.78rem;color:#6b7280;">• ' + escapeHtml(adj) + '</div>');
+    });
+  }
+
+  parts.push(
+    '  <div style="margin-top:8px;">',
+    '    <button class="ap-btn ap-btn-ghost ap-btn--sm" onclick="generateQuoteForBooking(\\'' + bookingId + '\\')">Regenerate Quote</button>',
+    '  </div>',
+    '</div>'
+  );
+
+  return parts.join('');
+}
+
+// ── Generate Quote for Booking ──────────────────────────────
+async function generateQuoteForBooking(bookingId) {
+  var displayEl = document.getElementById('quote-display-' + bookingId);
+  if (displayEl) {
+    displayEl.innerHTML = '<div class="ap-loading">Generating quote...</div>';
+  }
+
+  try {
+    // Fetch booking data to populate quote request
+    var bookingData = await apiFetch('/api/bookings/' + bookingId);
+    var b = bookingData.booking;
+    var bd = b.booking_data || {};
+
+    var payload = {
+      booking_id: bookingId,
+      service_type: bd.service_type || bd.service || 'standard',
+      rim_count: bd.num_rims || bd.rims || 1,
+      rim_size: bd.rim_size || null,
+      damage_description: bd.notes || '',
+    };
+
+    var result = await apiFetch('/api/quotes/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    showToast('Quote generated: $' + result.data.estimate_low + '–$' + result.data.estimate_high, 'success');
+    // Refresh the detail modal to show the new quote
+    openBookingDetail(bookingId);
+  } catch (err) {
+    showToast('Failed to generate quote: ' + err.message, 'error');
+    if (displayEl) {
+      displayEl.innerHTML = '<p class="ap-text--error">Quote generation failed.</p>' +
+        '<button class="ap-btn ap-btn-ghost ap-btn--sm" onclick="generateQuoteForBooking(\\'' + bookingId + '\\')">Retry</button>';
+    }
+  }
+}
+
+// ── Damage Scorer Upload ────────────────────────────────────
+function renderDamageScorerUpload(bookingId) {
+  return [
+    '<div class="ap-bd-sep"></div>',
+    '<div class="ap-detail-heading">Damage Assessment</div>',
+    '<div id="damage-scorer-' + bookingId + '">',
+    '  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">',
+    '    <label class="ap-btn ap-btn-ghost ap-btn--sm" style="cursor:pointer;">',
+    '      Upload Photo for AI Scoring',
+    '      <input type="file" accept="image/*" style="display:none;" onchange="scoreDamagePhoto(\\'' + bookingId + '\\', this)">',
+    '    </label>',
+    '    <span class="ap-muted" style="font-size:0.78rem;">JPG/PNG, max 10 MB</span>',
+    '  </div>',
+    '  <div id="damage-result-' + bookingId + '"></div>',
+    '</div>',
+  ].join('');
+}
+
+async function scoreDamagePhoto(bookingId, inputEl) {
+  var file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('Image too large (max 10 MB)', 'error');
+    return;
+  }
+
+  var resultEl = document.getElementById('damage-result-' + bookingId);
+  if (resultEl) {
+    resultEl.innerHTML = '<div class="ap-loading" style="margin-top:8px;">Analysing damage...</div>';
+  }
+
+  try {
+    var base64 = await fileToBase64(file);
+    var mediaType = file.type || 'image/jpeg';
+
+    var result = await apiFetch('/api/damage/score', {
+      method: 'POST',
+      body: JSON.stringify({ image_data: base64, media_type: mediaType }),
+    });
+
+    var d = result.data;
+    var sevColours = {
+      low:  { bg: '#dcfce7', border: '#bbf7d0', text: '#166534' },
+      med:  { bg: '#fef3c7', border: '#fde68a', text: '#92400e' },
+      high: { bg: '#fecaca', border: '#fecaca', text: '#991b1b' },
+    };
+    var sevKey = d.severity <= 3 ? 'low' : d.severity <= 6 ? 'med' : 'high';
+    var sc = sevColours[sevKey];
+    var sevLabel = d.severity <= 3 ? 'Cosmetic' : d.severity <= 6 ? 'Moderate' : d.severity <= 9 ? 'Significant' : 'Structural';
+
+    var html = [
+      '<div style="margin-top:8px;background:' + sc.bg + ';border:1px solid ' + sc.border + ';border-radius:8px;padding:12px 14px;font-size:0.85rem;">',
+      '  <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;">',
+      '    <span style="font-weight:700;font-size:1.3rem;color:' + sc.text + ';">' + d.severity + '/10</span>',
+      '    <span style="font-weight:600;color:' + sc.text + ';">' + sevLabel + '</span>',
+      '    <span style="color:var(--ap-text-muted);font-size:0.78rem;">(' + escapeHtml(d.confidence || '') + ' confidence)</span>',
+      '  </div>',
+      '  <div style="margin-bottom:4px;"><strong>Damage:</strong> ' + escapeHtml((d.damage_types || []).join(', ')) + '</div>',
+      '  <div style="margin-bottom:4px;"><strong>Recommended:</strong> ' + escapeHtml((d.recommended_service || '').replace(/_/g, ' ')) + '</div>',
+      '  <div style="color:var(--ap-text-muted);">' + escapeHtml(d.description || '') + '</div>',
+      '</div>',
+    ].join('');
+
+    if (resultEl) resultEl.innerHTML = html;
+    showToast('Damage scored: ' + d.severity + '/10 (' + sevLabel + ')', 'success');
+  } catch (err) {
+    showToast('Damage scoring failed: ' + err.message, 'error');
+    if (resultEl) {
+      resultEl.innerHTML = '<p class="ap-text--error" style="margin-top:8px;">Scoring failed: ' + escapeHtml(err.message) + '</p>';
+    }
+  }
+}
+
+// Helper: convert File to base64 string (no data-URI prefix)
+function fileToBase64(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      // result is "data:<type>;base64,<data>" — strip prefix
+      var result = reader.result || '';
+      var idx = result.indexOf(',');
+      resolve(idx >= 0 ? result.substring(idx + 1) : result);
+    };
+    reader.onerror = function() { reject(new Error('File read failed')); };
+    reader.readAsDataURL(file);
+  });
 }
 """

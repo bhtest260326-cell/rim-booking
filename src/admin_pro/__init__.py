@@ -231,6 +231,6 @@ def json_err(msg, code=400):
 # Import sub-modules last so that blueprint and helpers are defined before
 # registration. Each module calls register(admin_pro_bp, require_auth) at
 # import time.
-from .api import bookings, analytics, communications, system, customers  # noqa: F401, E402
+from .api import bookings, analytics, communications, system, customers, quotes  # noqa: F401, E402
 from .ui import main as ui_main  # noqa: F401, E402
 ui_main.register(admin_pro_bp, require_auth)  # register SPA route
