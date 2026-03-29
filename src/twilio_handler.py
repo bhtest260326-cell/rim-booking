@@ -15,6 +15,7 @@ from email.mime.multipart import MIMEMultipart
 import base64
 
 from feature_flags import get_flag
+from trace_context import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -348,6 +349,11 @@ def process_single_sms_webhook(from_number, body_text, message_sid, media_items=
     state.mark_sms_processed(message_sid)
 
 def poll_sms_replies():
+    with trace_span("process_sms"):
+        _poll_sms_replies_inner()
+
+
+def _poll_sms_replies_inner():
     try:
         client = get_twilio_client()
         state = StateManager()

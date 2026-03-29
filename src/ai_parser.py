@@ -6,6 +6,7 @@ import anthropic
 import time as _time
 from datetime import datetime, timedelta, timezone
 from postcodes import POSTCODE_MAP
+from trace_context import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -815,6 +816,11 @@ Interpret the owner's instruction and update the booking accordingly. Examples:
 
 
 def extract_booking_details(message_body, subject="", customer_email=""):
+    with trace_span("extract_booking_details"):
+        return _extract_booking_details_inner(message_body, subject, customer_email)
+
+
+def _extract_booking_details_inner(message_body, subject="", customer_email=""):
     try:
         today = _perth_today_str()
 

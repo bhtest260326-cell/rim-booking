@@ -16,7 +16,7 @@ def _configure_logging():
 
     # JSON formatter — every log line is a parseable JSON object
     formatter = jsonlogger.JsonFormatter(
-        fmt='%(asctime)s %(name)s %(levelname)s %(message)s',
+        fmt='%(asctime)s %(name)s %(levelname)s %(message)s %(trace_id)s %(span)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
         rename_fields={'asctime': 'ts', 'name': 'logger', 'levelname': 'level'}
     )
@@ -24,6 +24,10 @@ def _configure_logging():
     # Apply to root logger
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
+
+    # Add trace context filter so trace_id and span appear in every log line
+    from trace_context import TraceContextFilter
+    handler.addFilter(TraceContextFilter())
 
     root = logging.getLogger()
     root.handlers.clear()

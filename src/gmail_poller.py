@@ -11,6 +11,7 @@ from label_manager import initialise_labels, label_pending_reply, label_awaiting
 from email.mime.text import MIMEText
 
 from feature_flags import get_flag
+from trace_context import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,12 @@ def _process_single_message(service, state, msg_id):
     if state.is_email_processed(msg_id):
         return
 
+    with trace_span("process_email"):
+        _process_single_message_inner(service, state, msg_id)
+
+
+def _process_single_message_inner(service, state, msg_id):
+    """Inner logic for processing a single Gmail message, wrapped by a trace span."""
     try:
         message = service.users().messages().get(
             userId='me', id=msg_id, format='full'

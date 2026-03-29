@@ -4,6 +4,7 @@ import uuid
 import sqlite3
 import logging
 from datetime import datetime, timezone, timedelta
+from trace_context import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +363,13 @@ class StateManager:
 
     def create_pending_booking(self, booking_data, source, customer_email=None,
                                 raw_message=None, msg_id=None, thread_id=None):
+        with trace_span("create_booking"):
+            return self._create_pending_booking_inner(
+                booking_data, source, customer_email, raw_message, msg_id, thread_id
+            )
+
+    def _create_pending_booking_inner(self, booking_data, source, customer_email=None,
+                                       raw_message=None, msg_id=None, thread_id=None):
         pending_id = self._next_booking_number()
         raw_message_stored = (raw_message or '')[:2000]
         with self._conn() as conn:

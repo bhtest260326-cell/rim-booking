@@ -14,8 +14,10 @@ import json
 import base64
 import logging
 import time
+import uuid
 import collections
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
+from trace_context import set_trace_id, set_span
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +97,20 @@ def create_app():
         logger.info("Pub/Sub JWT verification: ENABLED (PUBSUB_AUDIENCE=%s)", _pubsub_audience)
     else:
         logger.info("Pub/Sub JWT verification: DISABLED (PUBSUB_AUDIENCE not set — local dev mode)")
+
+    @app.before_request
+    def _assign_request_trace_id():
+        """Generate or propagate a unique request/trace ID for every request."""
+        req_id = request.headers.get('X-Request-ID') or str(uuid.uuid4())
+        g.request_id = req_id
+        set_trace_id(req_id)
+        set_span(None)
+
+    @app.after_request
+    def _inject_request_id_header(response):
+        """Return the request ID in the response so callers can correlate."""
+        response.headers['X-Request-ID'] = getattr(g, 'request_id', '')
+        return response
 
     from admin_ui import admin_bp
     app.register_blueprint(admin_bp)
