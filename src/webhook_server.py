@@ -19,6 +19,8 @@ from flask import Flask, request, jsonify
 
 logger = logging.getLogger(__name__)
 
+_APP_START_TIME = time.time()   # track uptime from module load
+
 _PUBSUB_TOKEN = os.environ.get('PUBSUB_WEBHOOK_TOKEN', '')
 
 # Fix 5 — Hardcoded Claude model name: use env var with sensible default
@@ -191,6 +193,12 @@ def create_app():
                 logger.warning("Failed to update last_gmail_poll_at: %s", e)
         except Exception as e:
             logger.error("Gmail webhook processing error: %s", e, exc_info=True)
+            # Enqueue for retry instead of silently dropping
+            try:
+                from retry_queue import enqueue_retry
+                enqueue_retry('gmail', {'history_id': history_id})
+            except Exception as eq:
+                logger.error("Failed to enqueue gmail retry: %s", eq)
             # Return 200 anyway — returning 4xx/5xx causes Pub/Sub to retry
 
         return 'OK', 200
@@ -241,6 +249,17 @@ def create_app():
             process_single_sms_webhook(from_number, body_text, message_sid, media_items=media_items or None)
         except Exception as e:
             logger.error("Twilio webhook processing error: %s", e, exc_info=True)
+            # Enqueue for retry
+            try:
+                from retry_queue import enqueue_retry
+                enqueue_retry('twilio_sms', {
+                    'from_number': from_number,
+                    'body_text': body_text,
+                    'message_sid': message_sid,
+                    'media_items': media_items or None,
+                })
+            except Exception as eq:
+                logger.error("Failed to enqueue twilio_sms retry: %s", eq)
 
         # Return empty TwiML — Twilio requires a valid XML response
         return (
@@ -863,7 +882,36 @@ async function submitBooking(e) {
 
     @app.route('/health', methods=['GET'])
     def health():
-        return jsonify({'status': 'ok'})
+        uptime_seconds = int(time.time() - _APP_START_TIME)
+
+        # Quick DB connectivity check
+        db_ok = False
+        try:
+            from state_manager import StateManager
+            state = StateManager()
+            state.get_app_state('last_gmail_poll_at')  # lightweight read
+            db_ok = True
+        except Exception:
+            pass
+
+        # Last Gmail poll time
+        last_gmail_poll = None
+        try:
+            from state_manager import StateManager
+            last_gmail_poll = StateManager().get_app_state('last_gmail_poll_at')
+        except Exception:
+            pass
+
+        version = os.environ.get('RAILWAY_GIT_COMMIT_SHA', 'dev')[:8]
+
+        status = 'healthy' if db_ok else 'degraded'
+        return jsonify({
+            'status': status,
+            'uptime_seconds': uptime_seconds,
+            'db_ok': db_ok,
+            'last_gmail_poll': last_gmail_poll,
+            'version': version,
+        }), 200 if db_ok else 503
 
     @app.route('/health/ai', methods=['GET'])
     def health_ai():
@@ -886,7 +934,14 @@ async function submitBooking(e) {
 
     @app.route('/health/detailed', methods=['GET'])
     def health_detailed():
-        """Detailed system health check with per-component status."""
+        """Detailed system health check with per-component status (auth required)."""
+        # Require HEALTH_AUTH_TOKEN for detailed diagnostics
+        auth_token = os.environ.get('HEALTH_AUTH_TOKEN', '')
+        if auth_token:
+            provided = request.args.get('token', '') or request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
+            if not hmac.compare_digest(provided.encode(), auth_token.encode()):
+                return jsonify({'error': 'Unauthorized'}), 403
+
         import time
         import os
         from datetime import datetime, timezone, timedelta
@@ -978,8 +1033,21 @@ async function submitBooking(e) {
         cal_ok = bool(os.environ.get('GOOGLE_CALENDAR_ID'))
         checks['google_calendar'] = {'status': 'ok' if cal_ok else 'misconfigured'}
 
+        # --- Retry queue depth ---
+        try:
+            from retry_queue import get_queue_depth
+            depth = get_queue_depth()
+            checks['retry_queue'] = {'status': 'ok' if depth == 0 else 'pending', 'depth': depth}
+        except Exception as e:
+            checks['retry_queue'] = {'status': 'error', 'error': str(e)}
+
+        uptime_seconds = int(time.time() - _APP_START_TIME)
+        version = os.environ.get('RAILWAY_GIT_COMMIT_SHA', 'dev')[:8]
+
         return jsonify({
             'status': overall,
+            'uptime_seconds': uptime_seconds,
+            'version': version,
             'checks': checks,
             'timestamp': datetime.now(timezone.utc).isoformat(),
         }), 200 if overall != 'critical' else 503

@@ -51,6 +51,8 @@ _TASK_INTERVALS = {
     'check_waitlist_opportunities': 3600,  # every hour
     'drain_message_queue':          60,    # every minute (Upgrade 5)
     'run_daily_health_check':       300,   # every 5 min (idempotent via date key, Upgrade 10)
+    'process_retry_queue':          60,    # every minute — webhook retry queue
+    'verify_backup':                86400, # daily (gated to Sunday only)
 }
 
 _KNOWN_TASKS = frozenset(_TASK_INTERVALS.keys())
@@ -201,6 +203,30 @@ def run_scheduled_tasks():
         except Exception as e:
             logger.error(f"run_daily_health_check error: {e}", exc_info=True)
         _mark_ran('run_daily_health_check')
+
+    if _should_run('process_retry_queue'):
+        try:
+            from retry_queue import process_retry_queue
+            processed = process_retry_queue()
+            if processed:
+                logger.info("Retry queue: %d item(s) processed", processed)
+        except Exception as e:
+            logger.error("process_retry_queue error: %s", e, exc_info=True)
+        _mark_ran('process_retry_queue')
+
+    if _should_run('verify_backup'):
+        try:
+            now = _perth_now()
+            if now.weekday() == 6:  # Sunday (0=Mon, 6=Sun)
+                from backup_handler import verify_backup
+                result = verify_backup()
+                if result.get('ok'):
+                    logger.info("Weekly backup verification passed: %s", result.get('file_name'))
+                else:
+                    logger.warning("Weekly backup verification FAILED: %s", result.get('error') or result.get('checks'))
+        except Exception as e:
+            logger.error("verify_backup error: %s", e, exc_info=True)
+        _mark_ran('verify_backup')
 
 
 def _alert_owner_overrun(date_str, overrun_jobs):

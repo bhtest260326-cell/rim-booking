@@ -240,3 +240,117 @@ def get_backup_status() -> dict:
         "last_drive_backup_file_id": state.get_app_state('last_drive_backup_file_id'),
         "last_drive_backup_size": state.get_app_state('last_drive_backup_size'),
     }
+
+
+def verify_backup() -> dict:
+    """Download the latest backup from Google Drive, restore to a temp DB,
+    and run integrity checks.
+
+    Checks performed:
+      1. PRAGMA integrity_check
+      2. Key tables exist (bookings, clarifications, app_state)
+      3. Row counts are non-zero for bookings
+
+    Returns a dict with 'ok' (bool), 'checks' (dict), and optional 'error'.
+    """
+    tmp_path = None
+    try:
+        drive_svc = _get_drive_service()
+        if drive_svc is None:
+            return {"ok": False, "error": "Drive not configured"}
+
+        state = StateManager()
+        folder_id = state.get_app_state('drive_backup_folder_id')
+        if not folder_id:
+            return {"ok": False, "error": "No backup folder ID stored in app_state"}
+
+        # Find the most recent backup file in the folder
+        results = drive_svc.files().list(
+            q=f"'{folder_id}' in parents and trashed = false",
+            fields='files(id, name, createdTime)',
+            orderBy='createdTime desc',
+            pageSize=1,
+        ).execute()
+        files = results.get('files', [])
+        if not files:
+            return {"ok": False, "error": "No backup files found in Drive folder"}
+
+        latest = files[0]
+        file_id = latest['id']
+        file_name = latest.get('name', 'unknown')
+        logger.info("verify_backup: downloading %s (%s)", file_name, file_id)
+
+        # Download to a temp file
+        from googleapiclient.http import MediaIoBaseDownload
+        import io
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix='.db', prefix='backup_verify_')
+        os.close(tmp_fd)
+
+        request_obj = drive_svc.files().get_media(fileId=file_id)
+        with open(tmp_path, 'wb') as fh:
+            downloader = MediaIoBaseDownload(fh, request_obj)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+
+        # Run integrity checks on the downloaded DB
+        checks = {}
+
+        conn = sqlite3.connect(tmp_path)
+        try:
+            # 1. PRAGMA integrity_check
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()
+            integrity_ok = integrity and integrity[0] == 'ok'
+            checks['integrity_check'] = 'ok' if integrity_ok else str(integrity)
+
+            # 2. Verify key tables exist
+            required_tables = ['bookings', 'clarifications', 'app_state']
+            existing = {
+                row[0] for row in
+                conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            missing = [t for t in required_tables if t not in existing]
+            checks['tables_present'] = 'ok' if not missing else f"missing: {', '.join(missing)}"
+
+            # 3. Verify bookings row count is non-zero
+            row_counts = {}
+            for table in required_tables:
+                if table in existing:
+                    count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    row_counts[table] = count
+            checks['row_counts'] = row_counts
+            checks['bookings_non_empty'] = 'ok' if row_counts.get('bookings', 0) > 0 else 'EMPTY'
+
+        finally:
+            conn.close()
+
+        all_ok = (
+            checks.get('integrity_check') == 'ok'
+            and checks.get('tables_present') == 'ok'
+            and checks.get('bookings_non_empty') == 'ok'
+        )
+
+        if all_ok:
+            logger.info("verify_backup: all checks passed for %s", file_name)
+            state.set_app_state('last_backup_verify_date',
+                                datetime.now(_PERTH_TZ).strftime('%Y-%m-%d'))
+            state.set_app_state('last_backup_verify_result', 'ok')
+        else:
+            logger.warning("verify_backup: checks FAILED for %s — %s", file_name, checks)
+            state.set_app_state('last_backup_verify_result', 'fail')
+
+        return {"ok": all_ok, "file_name": file_name, "checks": checks}
+
+    except Exception as e:
+        logger.error("verify_backup: %s", e, exc_info=True)
+        return {"ok": False, "error": str(e)}
+    finally:
+        # Clean up temp file
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
