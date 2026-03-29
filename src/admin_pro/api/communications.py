@@ -215,6 +215,71 @@ def register(bp, require_auth):
             return jsonify({"ok": False, "error": "Failed to update waitlist entry"})
 
     # ------------------------------------------------------------------
+    # GET /api/comms/sms/templates
+    # ------------------------------------------------------------------
+    @bp.route("/api/comms/sms/templates", methods=["GET"])
+    @require_auth
+    def comms_sms_templates():
+        from twilio_handler import SMS_TEMPLATES
+
+        templates = [
+            {"key": key, "label": t["label"], "body": t["body"]}
+            for key, t in SMS_TEMPLATES.items()
+        ]
+        return jsonify({"templates": templates})
+
+    # ------------------------------------------------------------------
+    # POST /api/comms/sms/send-template
+    # ------------------------------------------------------------------
+    @bp.route("/api/comms/sms/send-template", methods=["POST"])
+    @require_auth
+    def comms_sms_send_template():
+        from twilio_handler import SMS_TEMPLATES, send_sms
+        import json
+
+        body = request.get_json(force=True) or {}
+        booking_id = body.get("booking_id")
+        template_key = body.get("template_key", "")
+        variables = body.get("variables") or {}
+
+        if not booking_id or not template_key:
+            return jsonify({"ok": False, "error": "'booking_id' and 'template_key' are required"}), 400
+
+        template = SMS_TEMPLATES.get(template_key)
+        if not template:
+            return jsonify({"ok": False, "error": f"Unknown template: {template_key}"}), 400
+
+        try:
+            from state_manager import _get_conn
+
+            with _get_conn() as conn:
+                row = conn.execute(
+                    "SELECT booking_data FROM bookings WHERE id=?", (booking_id,)
+                ).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": f"Booking {booking_id} not found"}), 404
+
+            bd = json.loads(row["booking_data"]) if isinstance(row["booking_data"], str) else row["booking_data"]
+            phone = bd.get("customer_phone", "")
+            if not phone:
+                return jsonify({"ok": False, "error": "Booking has no customer phone number"}), 400
+
+            # Merge booking data defaults with caller-supplied overrides
+            fill = {"customer_name": bd.get("customer_name", "there")}
+            fill.update(variables)
+
+            try:
+                message = template["body"].format(**fill)
+            except KeyError as ke:
+                return jsonify({"ok": False, "error": f"Missing variable: {ke}"}), 400
+
+            send_sms(phone, message)
+            return jsonify({"ok": True, "message": message})
+        except Exception:
+            logger.exception("comms_sms_send_template error")
+            return jsonify({"ok": False, "error": "Failed to send template SMS"})
+
+    # ------------------------------------------------------------------
     # GET /api/comms/sms/log
     # ------------------------------------------------------------------
     @bp.route("/api/comms/sms/log", methods=["GET"])

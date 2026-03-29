@@ -18,6 +18,58 @@ from feature_flags import get_flag
 
 logger = logging.getLogger(__name__)
 
+# --- Flexible owner reply matching ---
+_YES_WORDS = {'yes', 'yeah', 'yep', 'confirm', 'confirmed', 'ok', 'y', 'approve', 'approved', 'go ahead', '\U0001f44d'}
+_NO_WORDS = {'no', 'nope', 'decline', 'declined', 'reject', 'n', 'cancel', '\U0001f44e'}
+
+
+def _is_owner_yes(text: str) -> bool:
+    return text.strip().lower() in _YES_WORDS
+
+
+def _is_owner_no(text: str) -> bool:
+    return text.strip().lower() in _NO_WORDS
+
+
+# --- SMS Templates for quick customer messages ---
+SMS_TEMPLATES = {
+    'running_late': {
+        'label': 'Running Late',
+        'body': (
+            "Hi {customer_name}, this is Wheel Doctor. We're running about {delay_minutes} minutes "
+            "behind schedule but are still on our way. Apologies for the delay!"
+        ),
+    },
+    'need_access': {
+        'label': 'Need Access',
+        'body': (
+            "Hi {customer_name}, this is Wheel Doctor. We've arrived but need access to your vehicle. "
+            "Could you please come out or let us know how to reach the car? Thanks!"
+        ),
+    },
+    'job_complete': {
+        'label': 'Job Complete',
+        'body': (
+            "Hi {customer_name}, your rim repair is all done! Everything looks great. "
+            "Thanks for choosing Wheel Doctor — if you have any questions, just reply to this message."
+        ),
+    },
+    'weather_delay': {
+        'label': 'Weather Delay',
+        'body': (
+            "Hi {customer_name}, due to weather conditions today we need to reschedule your appointment. "
+            "We'll be in touch shortly with a new time. Sorry for the inconvenience! - Wheel Doctor"
+        ),
+    },
+    'on_the_way': {
+        'label': 'On the Way',
+        'body': (
+            "Hi {customer_name}, Wheel Doctor here — we're on our way and should arrive in approximately "
+            "{eta_minutes} minutes. See you soon!"
+        ),
+    },
+}
+
 def _fmt_date(date_str):
     """Format 'YYYY-MM-DD' as 'Monday, 31 March 2026'. Returns original string on failure."""
     try:
@@ -315,9 +367,9 @@ def process_single_sms_webhook(from_number, body_text, message_sid, media_items=
         state.mark_sms_processed(message_sid)
         return
     upper = body_clean.upper().strip()
-    if upper == 'YES':
+    if _is_owner_yes(body_clean):
         handle_owner_confirm(pending_id, pending)
-    elif upper == 'NO':
+    elif _is_owner_no(body_clean):
         handle_owner_decline(pending_id, pending)
     elif upper.startswith('CANCEL DATE '):
         # Format: CANCEL DATE YYYY-MM-DD <reason>
@@ -397,9 +449,9 @@ def poll_sms_replies():
                 state.mark_sms_processed(msg.sid)
                 continue
             upper = body_clean.upper().strip()
-            if upper == 'YES':
+            if _is_owner_yes(body_clean):
                 handle_owner_confirm(pending_id, pending)
-            elif upper == 'NO':
+            elif _is_owner_no(body_clean):
                 handle_owner_decline(pending_id, pending)
             elif upper.startswith('CANCEL DATE '):
                 rest = body_clean[len('CANCEL DATE '):].strip()
