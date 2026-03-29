@@ -1274,6 +1274,14 @@ body.ap-body {
   margin: 0;
   word-break: break-word;
 }
+.ap-dl dd a.ap-link {
+  color: var(--ap-text);
+  text-decoration: underline;
+  text-decoration-color: rgba(255,255,255,0.4);
+}
+.ap-dl dd a.ap-link:hover {
+  text-decoration-color: var(--ap-text);
+}
 
 .ap-notes-text {
   font-size: 13px;

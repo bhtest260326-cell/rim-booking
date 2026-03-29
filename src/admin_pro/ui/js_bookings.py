@@ -529,9 +529,9 @@ async function openBookingDetail(bookingId) {
         ].join(\'\')
       : \'<button class="ap-btn ap-btn-ghost" onclick="openEditModal(\\'\' + bookingId + \'\\')">&#9998; Edit</button>\';
 
-    const shortId = bookingId.substring(0, 8) + \'…\';
+    const shortId = bookingId.substring(0, 8).toUpperCase();
     showModal(
-      \'Booking \' + shortId + \' &nbsp;\' + statusBadge(booking.status),
+      \'#\' + shortId + \' <span style="margin-left:6px">\' + statusBadge(booking.status) + \'</span>\',
       body,
       footer
     );

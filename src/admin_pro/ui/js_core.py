@@ -241,7 +241,7 @@ function showModal(title, bodyHtml, footerHtml = '') {
   const overlay = document.getElementById('ap-modal-overlay');
   if (!overlay) return;
 
-  document.getElementById('ap-modal-title').textContent = title;
+  document.getElementById('ap-modal-title').innerHTML = title;
   document.getElementById('ap-modal-body').innerHTML  = bodyHtml;
   document.getElementById('ap-modal-footer').innerHTML = footerHtml;
 
